@@ -411,3 +411,71 @@ export async function fetchPayerPaymentStatus({
 		totalAmount: paidAmount + pendingAmount,
 	};
 }
+
+export type PayerReimbursementItem = {
+	id: string;
+	name: string;
+	amount: number;
+	purchaseDate: string;
+};
+
+export type PayerReimbursementSummary = {
+	pendingAmount: number;
+	receivedAmount: number;
+	pendingCount: number;
+	pendingItems: PayerReimbursementItem[];
+};
+
+export async function fetchPayerReimbursementSummary({
+	userId,
+	payerId,
+	period,
+}: BaseFilters): Promise<PayerReimbursementSummary> {
+	const rows = await db
+		.select({
+			id: transactions.id,
+			name: transactions.name,
+			amount: transactions.amount,
+			isSettled: transactions.isSettled,
+			purchaseDate: transactions.purchaseDate,
+		})
+		.from(transactions)
+		.where(
+			and(
+				eq(transactions.userId, userId),
+				eq(transactions.reimbursementDebtorId, payerId),
+				eq(transactions.period, period),
+				eq(transactions.transactionType, RECEITA),
+			),
+		)
+		.orderBy(asc(transactions.purchaseDate), asc(transactions.createdAt));
+
+	let pendingAmount = 0;
+	let receivedAmount = 0;
+	let pendingCount = 0;
+	const pendingItems: PayerReimbursementItem[] = [];
+
+	for (const row of rows) {
+		const amount = Math.abs(toNumber(row.amount));
+		if (row.isSettled) {
+			receivedAmount += amount;
+			continue;
+		}
+
+		pendingAmount += amount;
+		pendingCount += 1;
+		pendingItems.push({
+			id: row.id,
+			name: row.name,
+			amount,
+			purchaseDate: toDateOnlyString(row.purchaseDate) ?? "",
+		});
+	}
+
+	return {
+		pendingAmount,
+		receivedAmount,
+		pendingCount,
+		pendingItems,
+	};
+}

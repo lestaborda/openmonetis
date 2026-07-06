@@ -677,6 +677,11 @@ export const transactions = pgTable(
 		}),
 		seriesId: uuid("series_id"),
 		splitGroupId: uuid("split_group_id"),
+		splitMode: text("modo_divisao"),
+		reimbursementDebtorId: uuid("reembolso_devedor_id").references(
+			(): AnyPgColumn => payers.id,
+			{ onDelete: "set null", onUpdate: "cascade" },
+		),
 		transferId: uuid("transfer_id"),
 		ofxFitId: text("ofx_fit_id"),
 		importBatchId: text("import_batch_id"),
@@ -714,6 +719,9 @@ export const transactions = pgTable(
 			table.userId,
 			table.splitGroupId,
 		),
+		userIdReimbursementDebtorPeriodIdx: index(
+			"lancamentos_user_id_reembolso_devedor_periodo_idx",
+		).on(table.userId, table.reimbursementDebtorId, table.period),
 		// Índice para buscar transferências relacionadas
 		transferIdIdx: index("lancamentos_transfer_id_idx").on(table.transferId),
 		// Índice para filtrar por condição (aberto, realizado, cancelado)

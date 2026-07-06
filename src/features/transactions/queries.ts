@@ -10,6 +10,7 @@ import {
 	type SQL,
 	sql,
 } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
 	cards,
 	categories,
@@ -20,6 +21,8 @@ import {
 } from "@/db/schema";
 import { INITIAL_BALANCE_NOTE } from "@/shared/lib/accounts/constants";
 import { db } from "@/shared/lib/db";
+
+const reimbursementDebtor = alias(payers, "reimbursement_debtor");
 
 type BaseTransactionQueryInput = {
 	filters: SQL[];
@@ -72,6 +75,7 @@ const mapTransactionRows = (
 	transactionRows: {
 		transaction: typeof transactions.$inferSelect;
 		payer: typeof payers.$inferSelect | null;
+		reimbursementDebtor: typeof payers.$inferSelect | null;
 		financialAccount: typeof financialAccounts.$inferSelect | null;
 		card: typeof cards.$inferSelect | null;
 		category: typeof categories.$inferSelect | null;
@@ -81,6 +85,7 @@ const mapTransactionRows = (
 	transactionRows.map((row) => ({
 		...row.transaction,
 		payer: row.payer,
+		reimbursementDebtor: row.reimbursementDebtor,
 		financialAccount: row.financialAccount,
 		card: row.card,
 		category: row.category,
@@ -98,6 +103,7 @@ async function selectTransactionsWithRelations({
 		.select({
 			transaction: transactions,
 			payer: payers,
+			reimbursementDebtor,
 			financialAccount: financialAccounts,
 			card: cards,
 			category: categories,
@@ -108,6 +114,10 @@ async function selectTransactionsWithRelations({
 		})
 		.from(transactions)
 		.leftJoin(payers, eq(transactions.payerId, payers.id))
+		.leftJoin(
+			reimbursementDebtor,
+			eq(transactions.reimbursementDebtorId, reimbursementDebtor.id),
+		)
 		.leftJoin(
 			financialAccounts,
 			eq(transactions.accountId, financialAccounts.id),

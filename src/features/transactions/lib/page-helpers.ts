@@ -26,6 +26,7 @@ import {
 	DATE_END_PARAM,
 	DATE_START_PARAM,
 	PAYMENT_METHODS,
+	RECEIVABLE_FILTER_VALUE,
 	SETTLED_FILTER_VALUES,
 	TRANSACTION_CONDITIONS,
 	TRANSACTION_TYPES,
@@ -67,6 +68,7 @@ export type TransactionSearchFilters = {
 	settledFilter: string | null;
 	attachmentFilter: string | null;
 	dividedFilter: string | null;
+	receivableFilter: string | null;
 	amountMinFilter: number | null;
 	amountMaxFilter: number | null;
 	dateStartFilter: string | null;
@@ -188,6 +190,7 @@ export const extractTransactionSearchFilters = (
 	settledFilter: getSingleParam(params, "settled"),
 	attachmentFilter: getSingleParam(params, "hasAttachment"),
 	dividedFilter: getSingleParam(params, "isDivided"),
+	receivableFilter: getSingleParam(params, "receivable"),
 	amountMinFilter: parsePositiveAmount(
 		getSingleParam(params, AMOUNT_MIN_PARAM),
 	),
@@ -522,6 +525,16 @@ export const buildTransactionWhere = ({
 		where.push(eq(transactions.isDivided, true));
 	}
 
+	if (filters.receivableFilter === RECEIVABLE_FILTER_VALUE) {
+		where.push(
+			and(
+				isNotNull(transactions.reimbursementDebtorId),
+				eq(transactions.transactionType, "Receita"),
+				eq(transactions.isSettled, false),
+			) as SQL,
+		);
+	}
+
 	if (filters.amountMinFilter !== null) {
 		where.push(
 			gte(sql`abs(${transactions.amount})`, filters.amountMinFilter.toFixed(2)),
@@ -556,6 +569,7 @@ export const buildTransactionWhere = ({
 
 type TransactionRowWithRelations = Partial<typeof transactions.$inferSelect> & {
 	payer?: PayerRow | null;
+	reimbursementDebtor?: PayerRow | null;
 	financialAccount?: AccountRow | null;
 	card?: CardRow | null;
 	category?: CategoryRow | null;
@@ -601,6 +615,10 @@ export const mapTransactionsData = (rows: TransactionRowWithRelations[]) =>
 		anticipationId: item.anticipationId ?? null,
 		seriesId: item.seriesId ?? null,
 		splitGroupId: item.splitGroupId ?? null,
+		splitMode: item.splitMode ?? null,
+		reimbursementDebtorId: item.reimbursementDebtorId ?? null,
+		reimbursementDebtorName: item.reimbursementDebtor?.name ?? null,
+		reimbursementDebtorAvatar: item.reimbursementDebtor?.avatarUrl ?? null,
 		hasAttachments: item.hasAttachments ?? false,
 		readonly:
 			Boolean(item.note?.startsWith(ACCOUNT_AUTO_INVOICE_NOTE_PREFIX)) ||

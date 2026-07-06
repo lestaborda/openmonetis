@@ -10,7 +10,10 @@ import {
 	transactions,
 } from "@/db/schema";
 import {
+	DEFAULT_RECURRENCE_COUNT,
+	MAX_RECURRENCE_COUNT,
 	PAYMENT_METHODS,
+	SPLIT_MODES,
 	TRANSACTION_CONDITIONS,
 	TRANSACTION_TYPES,
 } from "@/features/transactions/lib/constants";
@@ -326,6 +329,9 @@ const baseFields = z.object({
 		)
 		.optional(),
 	isSplit: z.boolean().optional().default(false),
+	splitMode: z
+		.enum([SPLIT_MODES.COST_SHARE, SPLIT_MODES.REIMBURSEMENT])
+		.optional(),
 	primarySplitAmount: z.coerce.number().min(0).optional(),
 	secondarySplitAmount: z.coerce.number().min(0).optional(),
 	accountId: uuidSchema("FinancialAccount").nullable().optional(),
@@ -367,6 +373,18 @@ const baseFields = z.object({
 	isSettled: z.boolean().nullable().optional(),
 });
 
+const resolveRecurrenceCount = (count?: number | null) => {
+	if (
+		typeof count === "number" &&
+		count >= 2 &&
+		count <= MAX_RECURRENCE_COUNT
+	) {
+		return count;
+	}
+
+	return DEFAULT_RECURRENCE_COUNT;
+};
+
 const refineLancamento = (
 	data: z.infer<typeof baseFields> & { id?: string },
 	ctx: z.RefinementCtx,
@@ -396,13 +414,8 @@ const refineLancamento = (
 	}
 
 	if (data.condition === "Recorrente") {
-		if (!data.recurrenceCount) {
-			ctx.addIssue({
-				code: z.ZodIssueCode.custom,
-				path: ["recurrenceCount"],
-				message: "Informe por quantos meses a recorrência acontecerá.",
-			});
-		} else if (data.recurrenceCount < 2) {
+		const count = resolveRecurrenceCount(data.recurrenceCount);
+		if (count < 2) {
 			ctx.addIssue({
 				code: z.ZodIssueCode.custom,
 				path: ["recurrenceCount"],
@@ -437,15 +450,74 @@ const refineLancamento = (
 	}
 
 	if (data.isSplit) {
-		const shares = resolveSplitShares(data);
+		const isReimbursement = data.splitMode === SPLIT_MODES.REIMBURSEMENT;
 
 		if (!data.payerId) {
 			ctx.addIssue({
 				code: z.ZodIssueCode.custom,
 				path: ["payerId"],
-				message: "Selecione a pessoa principal para dividir o lançamento.",
+				message: isReimbursement
+					? "Selecione quem pagou o valor integral."
+					: "Selecione a pessoa principal para dividir o lançamento.",
 			});
 		}
+
+		if (isReimbursement) {
+			if (data.transactionType !== "Despesa") {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["splitMode"],
+					message:
+						'O modo "Pago antecipado" só funciona com lançamentos do tipo Despesa.',
+				});
+			}
+
+			const debtorShares = data.splitShares ?? [];
+			if (debtorShares.length < 1) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["splitShares"],
+					message: "Selecione pelo menos uma pessoa que deve reembolsar.",
+				});
+			}
+
+			const uniquePayerIds = new Set(
+				debtorShares.map((share) => share.payerId),
+			);
+			if (uniquePayerIds.size !== debtorShares.length) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["splitShares"],
+					message: "Escolha pessoas diferentes para o reembolso.",
+				});
+			}
+
+			if (debtorShares.some((share) => share.amount <= 0)) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["splitShares"],
+					message: "Informe um valor maior que zero para cada pessoa.",
+				});
+			}
+
+			const sum = debtorShares.reduce(
+				(total, share) => total + share.amount,
+				0,
+			);
+			const total = Math.abs(data.amount);
+			if (sum - total > 0.01) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["splitShares"],
+					message:
+						"A soma dos valores a receber não pode ser maior que o valor total.",
+				});
+			}
+
+			return;
+		}
+
+		const shares = resolveSplitShares(data);
 
 		if (shares.length < 2) {
 			ctx.addIssue({
@@ -720,6 +792,8 @@ export const buildTransactionRecords = ({
 		installmentCount: null as number | null,
 		currentInstallment: null as number | null,
 		isDivided: data.isSplit ?? false,
+		splitMode: isSplit ? SPLIT_MODES.COST_SHARE : null,
+		reimbursementDebtorId: null,
 		userId,
 		seriesId,
 	};
@@ -784,7 +858,7 @@ export const buildTransactionRecords = ({
 	}
 
 	if (data.condition === "Recorrente") {
-		const recurrenceTotal = data.recurrenceCount ?? 0;
+		const recurrenceTotal = resolveRecurrenceCount(data.recurrenceCount);
 
 		for (let index = 0; index < recurrenceTotal; index += 1) {
 			const recurrencePeriod = addMonthsToPeriod(period, index);
@@ -833,6 +907,272 @@ export const buildTransactionRecords = ({
 			boletoPaymentDate:
 				data.paymentMethod === "Boleto" && settled ? boletoPaymentDate : null,
 		});
+	});
+
+	return records;
+};
+
+const REIMBURSEMENT_PAYMENT_METHOD = "Transferência bancária" as const;
+
+type BuildReimbursementRecordsParams = {
+	data: BaseInput;
+	userId: string;
+	period: string;
+	purchaseDate: Date;
+	dueDate: Date | null;
+	boletoPaymentDate: Date | null;
+	debtorShares: Share[];
+	totalCents: number;
+	shouldNullifySettled: boolean;
+	seriesId: string | null;
+	receivableCategoryId: string;
+};
+
+export const buildDebtorShares = (splitShares?: SplitShareInput[]): Share[] => {
+	if (!splitShares?.length) {
+		return [];
+	}
+
+	return splitShares.map((share) => ({
+		payerId: share.payerId,
+		amountCents: Math.round(share.amount * 100),
+	}));
+};
+
+export const buildReimbursementRecords = ({
+	data,
+	userId,
+	period,
+	purchaseDate,
+	dueDate,
+	boletoPaymentDate,
+	debtorShares,
+	totalCents,
+	shouldNullifySettled,
+	seriesId,
+	receivableCategoryId,
+}: BuildReimbursementRecordsParams): TransactionInsert[] => {
+	const records: TransactionInsert[] = [];
+	const payerId = data.payerId;
+	if (!payerId) {
+		throw new Error("Pessoa principal não informada para o reembolso.");
+	}
+
+	const expenseBasePayload = {
+		name: data.name,
+		transactionType: data.transactionType,
+		condition: data.condition,
+		paymentMethod: data.paymentMethod,
+		note: data.note ?? null,
+		accountId: data.accountId ?? null,
+		cardId: data.cardId ?? null,
+		categoryId: data.categoryId ?? null,
+		payerId,
+		isDivided: true,
+		splitMode: SPLIT_MODES.REIMBURSEMENT,
+		reimbursementDebtorId: null,
+		userId,
+		seriesId,
+	};
+
+	const receivableBasePayload = {
+		name: data.name,
+		transactionType: "Receita" as const,
+		condition: data.condition,
+		paymentMethod: REIMBURSEMENT_PAYMENT_METHOD,
+		note: data.note ?? null,
+		accountId: null,
+		cardId: null,
+		categoryId: receivableCategoryId,
+		payerId,
+		isDivided: true,
+		splitMode: SPLIT_MODES.REIMBURSEMENT,
+		userId,
+		seriesId,
+	};
+
+	const cycleSplitGroupId = () => randomUUID();
+
+	const resolveExpenseSettledValue = (cycleIndex: number) => {
+		if (shouldNullifySettled) {
+			return null;
+		}
+		const initialSettled = data.isSettled ?? false;
+		if (data.condition === "Parcelado" || data.condition === "Recorrente") {
+			return cycleIndex === 0 ? initialSettled : false;
+		}
+		return initialSettled;
+	};
+
+	const pushReceivableRecords = ({
+		splitGroupId,
+		cycleDebtorShares,
+		cyclePurchaseDate,
+		cyclePeriod,
+		cycleDueDate,
+		installmentCount,
+		currentInstallment,
+		recurrenceCount,
+	}: {
+		splitGroupId: string;
+		cycleDebtorShares: Share[];
+		cyclePurchaseDate: Date;
+		cyclePeriod: string;
+		cycleDueDate: Date | null;
+		installmentCount: number | null;
+		currentInstallment: number | null;
+		recurrenceCount: number | null;
+	}) => {
+		for (const share of cycleDebtorShares) {
+			if (share.amountCents <= 0) {
+				continue;
+			}
+
+			records.push({
+				...receivableBasePayload,
+				amount: centsToDecimalString(share.amountCents),
+				purchaseDate: cyclePurchaseDate,
+				period: cyclePeriod,
+				isSettled: false,
+				dueDate: cycleDueDate,
+				boletoPaymentDate: null,
+				splitGroupId,
+				reimbursementDebtorId: share.payerId,
+				installmentCount,
+				currentInstallment,
+				recurrenceCount,
+			});
+		}
+	};
+
+	if (data.condition === "Parcelado") {
+		const installmentTotal = data.installmentCount ?? 0;
+		const startInstallment = data.startInstallment ?? 1;
+		const expenseAmountsByCycle = splitAmount(totalCents, installmentTotal);
+		const debtorAmountsByShare = debtorShares.map((share) =>
+			splitAmount(share.amountCents, installmentTotal),
+		);
+
+		for (
+			let index = 0;
+			index <= installmentTotal - startInstallment;
+			index += 1
+		) {
+			const currentInstallment = startInstallment + index;
+			const installmentPeriod = addMonthsToPeriod(period, index);
+			const installmentDueDate = dueDate
+				? addMonthsToDate(dueDate, index)
+				: null;
+			const splitGroupId = cycleSplitGroupId();
+			const expenseAmountCents =
+				expenseAmountsByCycle[currentInstallment - 1] ?? 0;
+			const settled = resolveExpenseSettledValue(index);
+
+			records.push({
+				...expenseBasePayload,
+				amount: centsToDecimalString(expenseAmountCents * -1),
+				purchaseDate,
+				period: installmentPeriod,
+				isSettled: settled,
+				installmentCount: installmentTotal,
+				currentInstallment,
+				recurrenceCount: null,
+				dueDate: installmentDueDate,
+				splitGroupId,
+				boletoPaymentDate:
+					data.paymentMethod === "Boleto" && settled ? boletoPaymentDate : null,
+			});
+
+			const cycleDebtorShares = debtorShares.map((share, shareIndex) => ({
+				payerId: share.payerId,
+				amountCents:
+					debtorAmountsByShare[shareIndex]?.[currentInstallment - 1] ?? 0,
+			}));
+
+			pushReceivableRecords({
+				splitGroupId,
+				cycleDebtorShares,
+				cyclePurchaseDate: purchaseDate,
+				cyclePeriod: installmentPeriod,
+				cycleDueDate: installmentDueDate,
+				installmentCount: installmentTotal,
+				currentInstallment,
+				recurrenceCount: null,
+			});
+		}
+
+		return records;
+	}
+
+	if (data.condition === "Recorrente") {
+		const recurrenceTotal = resolveRecurrenceCount(data.recurrenceCount);
+
+		for (let index = 0; index < recurrenceTotal; index += 1) {
+			const recurrencePeriod = addMonthsToPeriod(period, index);
+			const recurrencePurchaseDate = addMonthsToDate(purchaseDate, index);
+			const recurrenceDueDate = dueDate
+				? addMonthsToDate(dueDate, index)
+				: null;
+			const splitGroupId = cycleSplitGroupId();
+			const settled = resolveExpenseSettledValue(index);
+
+			records.push({
+				...expenseBasePayload,
+				amount: centsToDecimalString(totalCents * -1),
+				purchaseDate: recurrencePurchaseDate,
+				period: recurrencePeriod,
+				isSettled: settled,
+				recurrenceCount: recurrenceTotal,
+				installmentCount: null,
+				currentInstallment: null,
+				dueDate: recurrenceDueDate,
+				splitGroupId,
+				boletoPaymentDate:
+					data.paymentMethod === "Boleto" && settled ? boletoPaymentDate : null,
+			});
+
+			pushReceivableRecords({
+				splitGroupId,
+				cycleDebtorShares: debtorShares,
+				cyclePurchaseDate: recurrencePurchaseDate,
+				cyclePeriod: recurrencePeriod,
+				cycleDueDate: recurrenceDueDate,
+				installmentCount: null,
+				currentInstallment: null,
+				recurrenceCount: recurrenceTotal,
+			});
+		}
+
+		return records;
+	}
+
+	const splitGroupId = cycleSplitGroupId();
+	const settled = resolveExpenseSettledValue(0);
+
+	records.push({
+		...expenseBasePayload,
+		amount: centsToDecimalString(totalCents * -1),
+		purchaseDate,
+		period,
+		isSettled: settled,
+		installmentCount: null,
+		currentInstallment: null,
+		recurrenceCount: null,
+		dueDate,
+		splitGroupId,
+		boletoPaymentDate:
+			data.paymentMethod === "Boleto" && settled ? boletoPaymentDate : null,
+	});
+
+	pushReceivableRecords({
+		splitGroupId,
+		cycleDebtorShares: debtorShares,
+		cyclePurchaseDate: purchaseDate,
+		cyclePeriod: period,
+		cycleDueDate: dueDate,
+		installmentCount: null,
+		currentInstallment: null,
+		recurrenceCount: null,
 	});
 
 	return records;

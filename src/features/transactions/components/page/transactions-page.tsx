@@ -215,7 +215,7 @@ export function TransactionsPage({
 	const [convertRecurringOpen, setConvertRecurringOpen] = useState(false);
 	const [transactionToConvertRecurring, setTransactionToConvertRecurring] =
 		useState<TransactionItem | null>(null);
-	const [recurrenceCount, setRecurrenceCount] = useState("12");
+	const [recurrenceCount, setRecurrenceCount] = useState("60");
 	const [recurrencePending, setRecurrencePending] = useState(false);
 
 	const handleToggleSettlement = async (item: TransactionItem) => {
@@ -609,7 +609,7 @@ export function TransactionsPage({
 
 	const handleConvertToRecurring = (item: TransactionItem) => {
 		setTransactionToConvertRecurring(item);
-		setRecurrenceCount("12");
+		setRecurrenceCount("60");
 		setConvertRecurringOpen(true);
 	};
 
@@ -970,7 +970,7 @@ export function TransactionsPage({
 					</DialogHeader>
 
 					<div className="space-y-2">
-						<Label htmlFor="recurrenceCount">Repetir por</Label>
+						<Label htmlFor="recurrenceCount">Próximos meses</Label>
 						<Input
 							id="recurrenceCount"
 							type="number"
@@ -980,7 +980,8 @@ export function TransactionsPage({
 							onChange={(event) => setRecurrenceCount(event.target.value)}
 						/>
 						<p className="text-muted-foreground text-sm">
-							Use o total de meses da série, incluindo este lançamento.
+							Padrão: 60 meses (5 anos). Inclui este lançamento. Exclua da série
+							quando parar de pagar.
 						</p>
 						{recurringSummary ? (
 							<p className="rounded-md border bg-muted/40 px-3 py-2 text-muted-foreground text-sm">

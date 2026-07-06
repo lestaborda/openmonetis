@@ -8,9 +8,11 @@ import {
 	transactionAttachments,
 	transactions,
 } from "@/db/schema";
+import { SPLIT_MODES } from "@/features/transactions/lib/constants";
 import { ACCOUNT_AUTO_INVOICE_NOTE_PREFIX } from "@/shared/lib/accounts/constants";
 import { handleActionError } from "@/shared/lib/actions/helpers";
 import { getUser } from "@/shared/lib/auth/server";
+import { ensureReceivableCategoryForUser } from "@/shared/lib/categories/receivable";
 import { db } from "@/shared/lib/db";
 import {
 	buildEntriesByPayer,
@@ -26,6 +28,8 @@ import { copyAttachmentsForImport } from "../lib/attachment-copy";
 import { detectInstallmentFromName } from "../lib/installment-detection";
 import { cleanupAttachmentsAfterTransactionDelete } from "./attachments";
 import {
+	buildDebtorShares,
+	buildReimbursementRecords,
 	buildShares,
 	buildTransactionRecords,
 	type ConvertToInstallmentInput,
@@ -85,36 +89,52 @@ export async function createTransactionAction(
 		const totalCents = Math.round(Math.abs(data.amount) * 100);
 		const shouldNullifySettled = data.paymentMethod === "Cartão de crédito";
 
-		const shares = buildShares({
-			totalCents,
-			payerId: data.payerId ?? null,
-			isSplit: data.isSplit ?? false,
-			secondaryPayerId: data.secondaryPayerId,
-			splitShares: data.splitShares,
-			primarySplitAmountCents: data.primarySplitAmount
-				? Math.round(data.primarySplitAmount * 100)
-				: undefined,
-			secondarySplitAmountCents: data.secondarySplitAmount
-				? Math.round(data.secondarySplitAmount * 100)
-				: undefined,
-		});
+		const isReimbursementSplit =
+			(data.isSplit ?? false) &&
+			(data.splitMode ?? SPLIT_MODES.COST_SHARE) === SPLIT_MODES.REIMBURSEMENT;
 
 		const isSeriesLancamento =
 			data.condition === "Parcelado" || data.condition === "Recorrente";
 		const seriesId = isSeriesLancamento ? randomUUID() : null;
 
-		const records = buildTransactionRecords({
-			data,
-			userId: user.id,
-			period,
-			purchaseDate,
-			dueDate,
-			shares,
-			amountSign,
-			shouldNullifySettled,
-			boletoPaymentDate,
-			seriesId,
-		});
+		const records = isReimbursementSplit
+			? buildReimbursementRecords({
+					data,
+					userId: user.id,
+					period,
+					purchaseDate,
+					dueDate,
+					boletoPaymentDate,
+					debtorShares: buildDebtorShares(data.splitShares),
+					totalCents,
+					shouldNullifySettled,
+					seriesId,
+					receivableCategoryId: await ensureReceivableCategoryForUser(user.id),
+				})
+			: buildTransactionRecords({
+					data,
+					userId: user.id,
+					period,
+					purchaseDate,
+					dueDate,
+					shares: buildShares({
+						totalCents,
+						payerId: data.payerId ?? null,
+						isSplit: data.isSplit ?? false,
+						secondaryPayerId: data.secondaryPayerId,
+						splitShares: data.splitShares,
+						primarySplitAmountCents: data.primarySplitAmount
+							? Math.round(data.primarySplitAmount * 100)
+							: undefined,
+						secondarySplitAmountCents: data.secondarySplitAmount
+							? Math.round(data.secondarySplitAmount * 100)
+							: undefined,
+					}),
+					amountSign,
+					shouldNullifySettled,
+					boletoPaymentDate,
+					seriesId,
+				});
 
 		if (!records.length) {
 			throw new Error("Não foi possível criar os lançamentos solicitados.");
@@ -969,6 +989,7 @@ export async function toggleTransactionSettlementAction(
 				paymentMethod: true,
 				accountId: true,
 				transactionType: true,
+				reimbursementDebtorId: true,
 			},
 			where: and(
 				eq(transactions.id, data.id),
@@ -980,14 +1001,18 @@ export async function toggleTransactionSettlementAction(
 			return { success: false, error: "Lançamento não encontrado." };
 		}
 
-		if (existing.paymentMethod === "Cartão de crédito") {
+		if (
+			existing.paymentMethod === "Cartão de crédito" &&
+			!existing.reimbursementDebtorId
+		) {
 			return {
 				success: false,
 				error: "Pagamentos com cartão são conciliados automaticamente.",
 			};
 		}
 
-		const isBoleto = existing.paymentMethod === "Boleto";
+		const isReceivable = Boolean(existing.reimbursementDebtorId);
+		const isBoleto = existing.paymentMethod === "Boleto" && !isReceivable;
 		const isIncomeBill = isBoleto && existing.transactionType === "Receita";
 		const customPaymentDate =
 			isBoleto && data.value && data.paymentDate
@@ -1000,7 +1025,8 @@ export async function toggleTransactionSettlementAction(
 			: null;
 
 		const shouldUpdateAccount =
-			isBoleto && data.value && data.paymentAccountId !== undefined;
+			(isBoleto && data.value && data.paymentAccountId !== undefined) ||
+			(isReceivable && data.value && data.paymentAccountId);
 
 		if (shouldUpdateAccount && data.paymentAccountId) {
 			const paymentAccount = await db.query.financialAccounts.findFirst({

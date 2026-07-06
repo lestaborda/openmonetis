@@ -118,7 +118,13 @@ export function TransactionDetailsDialog({
 											: undefined
 									}
 								>
-									{transaction.isSettled ? "Pago" : "Em aberto"}
+									{transaction.reimbursementDebtorId
+										? transaction.isSettled
+											? "Recebido"
+											: "A receber"
+										: transaction.isSettled
+											? "Pago"
+											: "Em aberto"}
 								</Badge>
 							</div>
 							<div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -255,6 +261,13 @@ export function TransactionDetailsDialog({
 										value={formatDate(transaction.dueDate)}
 									/>
 								)}
+
+								{transaction.reimbursementDebtorName ? (
+									<DetailRow
+										label="Devedor"
+										value={transaction.reimbursementDebtorName}
+									/>
+								) : null}
 
 								{transaction.isDivided && (
 									<li className="flex items-center justify-between">

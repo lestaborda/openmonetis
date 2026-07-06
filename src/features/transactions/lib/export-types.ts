@@ -9,6 +9,7 @@ type TransactionExportFilters = {
 	settledFilter: string | null;
 	attachmentFilter: string | null;
 	dividedFilter: string | null;
+	receivableFilter: string | null;
 	amountMinFilter: number | null;
 	amountMaxFilter: number | null;
 	dateStartFilter: string | null;

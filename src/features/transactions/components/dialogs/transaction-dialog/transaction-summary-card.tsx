@@ -8,6 +8,7 @@ import {
 	RiPriceTag3Line,
 } from "@remixicon/react";
 import type { ReactNode } from "react";
+import { SPLIT_MODES } from "@/features/transactions/lib/constants";
 import { formatCurrency } from "@/shared/utils/currency";
 import { safeToNumber } from "@/shared/utils/number";
 import { MONTH_NAMES, parsePeriod } from "@/shared/utils/period";
@@ -18,6 +19,7 @@ import type { FormState } from "./transaction-dialog-types";
 type TransactionSummaryCardProps = {
 	formState: FormState;
 	payerOptions: SelectOption[];
+	splitPayerOptions: SelectOption[];
 	accountOptions: SelectOption[];
 	cardOptions: SelectOption[];
 	categoryOptions: SelectOption[];
@@ -26,6 +28,7 @@ type TransactionSummaryCardProps = {
 type ShareSummary = {
 	payerId: string | undefined;
 	label: string;
+	context?: string;
 	amountCents: number;
 };
 
@@ -65,14 +68,54 @@ function SummaryChip({ icon: Icon, children }: SummaryChipProps) {
 	);
 }
 
+function getPayerLabel(
+	payerOptions: SelectOption[],
+	splitPayerOptions: SelectOption[],
+	payerId?: string,
+) {
+	if (!payerId) return null;
+
+	return (
+		payerOptions.find((option) => option.value === payerId)?.label ??
+		splitPayerOptions.find((option) => option.value === payerId)?.label ??
+		null
+	);
+}
+
 function getShareSummaries(
 	formState: FormState,
 	payerOptions: SelectOption[],
+	splitPayerOptions: SelectOption[],
 	totalCents: number,
 ): ShareSummary[] {
+	const resolvePayerName = (payerId?: string) =>
+		getPayerLabel(payerOptions, splitPayerOptions, payerId) ?? "Pessoa";
+
 	if (!formState.isSplit) {
-		const label = getOptionLabel(payerOptions, formState.payerId) ?? "Pessoa";
-		return [{ payerId: formState.payerId, label, amountCents: totalCents }];
+		return [
+			{
+				payerId: formState.payerId,
+				label: resolvePayerName(formState.payerId),
+				amountCents: totalCents,
+			},
+		];
+	}
+
+	if (formState.splitMode === SPLIT_MODES.REIMBURSEMENT) {
+		return [
+			{
+				payerId: formState.payerId,
+				label: resolvePayerName(formState.payerId),
+				context: "saída integral",
+				amountCents: totalCents,
+			},
+			...formState.splitShares.map((share) => ({
+				payerId: share.payerId,
+				label: resolvePayerName(share.payerId),
+				context: "a receber",
+				amountCents: toCents(share.amount),
+			})),
+		];
 	}
 
 	const shares = [
@@ -89,7 +132,7 @@ function getShareSummaries(
 	return shares.map((share, index) => ({
 		payerId: share.payerId,
 		label:
-			getOptionLabel(payerOptions, share.payerId) ??
+			resolvePayerName(share.payerId) ??
 			(index === 0 ? "Pessoa principal" : "Pessoa"),
 		amountCents: share.amountCents,
 	}));
@@ -119,6 +162,7 @@ function formatInvoicePeriod(period: string) {
 export function TransactionSummaryCard({
 	formState,
 	payerOptions,
+	splitPayerOptions,
 	accountOptions,
 	cardOptions,
 	categoryOptions,
@@ -138,7 +182,12 @@ export function TransactionSummaryCard({
 	const remainingInstallments = isInstallment
 		? Math.max(0, installmentCount - startInstallment + 1)
 		: 1;
-	const shares = getShareSummaries(formState, payerOptions, totalCents);
+	const shares = getShareSummaries(
+		formState,
+		payerOptions,
+		splitPayerOptions,
+		totalCents,
+	);
 	const targetLabel =
 		formState.paymentMethod === "Cartão de crédito"
 			? getOptionLabel(cardOptions, formState.cardId)
@@ -149,7 +198,9 @@ export function TransactionSummaryCard({
 		0,
 	);
 	const hasSplitDifference =
-		formState.isSplit && Math.abs(shareTotalCents - totalCents) > 1;
+		formState.isSplit &&
+		formState.splitMode !== SPLIT_MODES.REIMBURSEMENT &&
+		Math.abs(shareTotalCents - totalCents) > 1;
 	const displayedShares = shares.slice(0, 3);
 	const remainingShares = Math.max(0, shares.length - displayedShares.length);
 	const operationCount =
@@ -230,7 +281,15 @@ export function TransactionSummaryCard({
 							key={`${share.payerId ?? share.label}-${share.amountCents}`}
 							className="flex items-center justify-between gap-3 text-muted-foreground"
 						>
-							<span className="min-w-0 truncate">{firstName(share.label)}</span>
+							<span className="min-w-0 truncate">
+								{firstName(share.label)}
+								{share.context ? (
+									<span className="text-muted-foreground/80">
+										{" "}
+										· {share.context}
+									</span>
+								) : null}
+							</span>
 							<span className="shrink-0 text-right text-foreground">
 								{formatCurrency(share.amountCents / 100)}
 								{installmentLabel ? (

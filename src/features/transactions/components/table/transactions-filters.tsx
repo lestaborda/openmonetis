@@ -26,6 +26,7 @@ import {
 	DATE_END_PARAM,
 	DATE_START_PARAM,
 	PAYMENT_METHODS,
+	RECEIVABLE_FILTER_VALUE,
 	SETTLED_FILTER_VALUES,
 	TRANSACTION_CONDITIONS,
 	TRANSACTION_TYPES,
@@ -737,6 +738,14 @@ export function TransactionsFilters({
 		});
 	}
 
+	if (searchParams.get("receivable") === RECEIVABLE_FILTER_VALUE) {
+		activeFilterChips.push({
+			key: "receivable",
+			label: "A receber",
+			onRemove: () => handleRemoveParams(["receivable"]),
+		});
+	}
+
 	if (hasAmountFilter) {
 		const minValue = parsePositiveAmount(
 			searchParams.get(AMOUNT_MIN_PARAM) ?? "",
@@ -1137,6 +1146,29 @@ export function TransactionsFilters({
 												handleFilterChange(
 													"hasAttachment",
 													checked ? "true" : null,
+												);
+											}}
+										/>
+									</div>
+
+									<div className="flex items-center justify-between">
+										<label
+											htmlFor="filter-receivable"
+											className="text-sm font-medium cursor-pointer"
+										>
+											A receber
+										</label>
+										<Switch
+											id="filter-receivable"
+											checked={
+												searchParams.get("receivable") ===
+												RECEIVABLE_FILTER_VALUE
+											}
+											disabled={isPending}
+											onCheckedChange={(checked) => {
+												handleFilterChange(
+													"receivable",
+													checked ? RECEIVABLE_FILTER_VALUE : null,
 												);
 											}}
 										/>

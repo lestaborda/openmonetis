@@ -1,4 +1,5 @@
 import { and, desc, eq, type SQL, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
 	cards,
 	categories,
@@ -10,6 +11,8 @@ import {
 	user as usersTable,
 } from "@/db/schema";
 import { db } from "@/shared/lib/db";
+
+const reimbursementDebtor = alias(payers, "reimbursement_debtor");
 
 type ShareData = {
 	id: string;
@@ -71,6 +74,7 @@ export async function fetchPayerTransactions(filters: SQL[]) {
 		.select({
 			transaction: transactions,
 			payer: payers,
+			reimbursementDebtor,
 			financialAccount: financialAccounts,
 			card: cards,
 			category: categories,
@@ -81,6 +85,10 @@ export async function fetchPayerTransactions(filters: SQL[]) {
 		})
 		.from(transactions)
 		.leftJoin(payers, eq(transactions.payerId, payers.id))
+		.leftJoin(
+			reimbursementDebtor,
+			eq(transactions.reimbursementDebtorId, reimbursementDebtor.id),
+		)
 		.leftJoin(
 			financialAccounts,
 			eq(transactions.accountId, financialAccounts.id),
@@ -93,6 +101,7 @@ export async function fetchPayerTransactions(filters: SQL[]) {
 	return transactionRows.map((row) => ({
 		...row.transaction,
 		payer: row.payer,
+		reimbursementDebtor: row.reimbursementDebtor,
 		financialAccount: row.financialAccount,
 		card: row.card,
 		category: row.category,

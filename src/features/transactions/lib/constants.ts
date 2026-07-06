@@ -31,6 +31,19 @@ export const SETTLED_FILTER_VALUES = {
 	UNPAID: "nao-pago",
 } as const;
 
+export const SPLIT_MODES = {
+	COST_SHARE: "cost_share",
+	REIMBURSEMENT: "reimbursement",
+} as const;
+
+export type SplitMode = (typeof SPLIT_MODES)[keyof typeof SPLIT_MODES];
+
+export const RECEIVABLE_FILTER_VALUE = "a-receber";
+
+/** Meses criados ao salvar um lançamento recorrente sem seleção explícita. */
+export const DEFAULT_RECURRENCE_COUNT = 60;
+export const MAX_RECURRENCE_COUNT = 60;
+
 export const AMOUNT_MIN_PARAM = "valorMin";
 export const AMOUNT_MAX_PARAM = "valorMax";
 export const DATE_START_PARAM = "dataInicio";

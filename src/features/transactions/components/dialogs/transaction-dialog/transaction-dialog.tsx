@@ -13,6 +13,10 @@ import {
 } from "@/features/transactions/actions/attachments";
 import { groupAndSortCategories } from "@/features/transactions/lib/category-helpers";
 import {
+	DEFAULT_RECURRENCE_COUNT,
+	SPLIT_MODES,
+} from "@/features/transactions/lib/constants";
+import {
 	applyFieldDependencies,
 	buildTransactionInitialState,
 	deriveCreditCardPeriod,
@@ -261,22 +265,31 @@ export function TransactionDialog({
 		}
 
 		const sanitizedAmount = Math.abs(amountValue);
+		const isReimbursementSplit =
+			formState.isSplit && formState.splitMode === SPLIT_MODES.REIMBURSEMENT;
 		const normalizedSplitShares = formState.isSplit
-			? [
-					{
-						payerId: formState.payerId ?? "",
-						amount: Number.parseFloat(formState.primarySplitAmount) || 0,
-					},
-					...formState.splitShares.map((share) => ({
+			? isReimbursementSplit
+				? formState.splitShares.map((share) => ({
 						payerId: share.payerId,
 						amount: Number.parseFloat(share.amount) || 0,
-					})),
-				]
+					}))
+				: [
+						{
+							payerId: formState.payerId ?? "",
+							amount: Number.parseFloat(formState.primarySplitAmount) || 0,
+						},
+						...formState.splitShares.map((share) => ({
+							payerId: share.payerId,
+							amount: Number.parseFloat(share.amount) || 0,
+						})),
+					]
 			: undefined;
 
 		if (formState.isSplit) {
 			if (formState.splitShares.length === 0) {
-				const message = "Selecione pelo menos uma pessoa para dividir.";
+				const message = isReimbursementSplit
+					? "Selecione pelo menos uma pessoa que deve reembolsar."
+					: "Selecione pelo menos uma pessoa para dividir.";
 				setErrorMessage(message);
 				toast.error(message);
 				return;
@@ -292,7 +305,16 @@ export function TransactionDialog({
 			const splitTotal =
 				normalizedSplitShares?.reduce((sum, share) => sum + share.amount, 0) ??
 				0;
-			if (Math.abs(splitTotal - sanitizedAmount) > 0.01) {
+
+			if (isReimbursementSplit) {
+				if (splitTotal - sanitizedAmount > 0.01) {
+					const message =
+						"A soma dos valores a receber não pode ser maior que o valor total.";
+					setErrorMessage(message);
+					toast.error(message);
+					return;
+				}
+			} else if (Math.abs(splitTotal - sanitizedAmount) > 0.01) {
 				const message = "A soma das divisões deve ser igual ao valor total.";
 				setErrorMessage(message);
 				toast.error(message);
@@ -334,6 +356,9 @@ export function TransactionDialog({
 			payerId: formState.payerId ?? null,
 			splitShares: normalizedSplitShares,
 			isSplit: formState.isSplit,
+			splitMode: formState.isSplit
+				? (formState.splitMode as "cost_share" | "reimbursement")
+				: undefined,
 			primarySplitAmount: formState.isSplit
 				? Number.parseFloat(formState.primarySplitAmount) || undefined
 				: undefined,
@@ -359,8 +384,8 @@ export function TransactionDialog({
 					? Number(formState.startInstallment)
 					: undefined,
 			recurrenceCount:
-				formState.condition === "Recorrente" && formState.recurrenceCount
-					? Number(formState.recurrenceCount)
+				formState.condition === "Recorrente"
+					? Number(formState.recurrenceCount) || DEFAULT_RECURRENCE_COUNT
 					: undefined,
 			dueDate:
 				formState.paymentMethod === "Boleto" && formState.dueDate
@@ -737,6 +762,7 @@ export function TransactionDialog({
 								<TransactionSummaryCard
 									formState={formState}
 									payerOptions={payerOptions}
+									splitPayerOptions={splitPayerOptions}
 									accountOptions={accountOptions}
 									cardOptions={cardOptions}
 									categoryOptions={categoryOptions}
