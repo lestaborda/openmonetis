@@ -306,7 +306,7 @@ export function SplitConfigDialog({
 
 				<div className="min-h-0 space-y-2 overflow-y-auto pr-1">
 					<RadioGroup
-						value={formState.splitMode}
+						value={formState.splitMode || SPLIT_MODES.REIMBURSEMENT}
 						onValueChange={(value) =>
 							onFieldChange("splitMode", value as FormState["splitMode"])
 						}

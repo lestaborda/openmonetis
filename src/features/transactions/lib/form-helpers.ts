@@ -177,7 +177,7 @@ export function buildTransactionInitialState(
 		secondaryPayerId: undefined,
 		splitShares: [],
 		isSplit: false,
-		splitMode: SPLIT_MODES.COST_SHARE,
+		splitMode: SPLIT_MODES.REIMBURSEMENT,
 		primarySplitAmount: "",
 		secondarySplitAmount: "",
 		accountId:
@@ -344,11 +344,12 @@ export function applyFieldDependencies(
 		updates.splitShares = [];
 		updates.primarySplitAmount = "";
 		updates.secondarySplitAmount = "";
-		updates.splitMode = SPLIT_MODES.COST_SHARE;
+		updates.splitMode = SPLIT_MODES.REIMBURSEMENT;
 	}
 
 	// When split is enabled and amount exists, calculate initial split amounts
 	if (key === "isSplit" && value === true) {
+		updates.splitMode = SPLIT_MODES.REIMBURSEMENT;
 		const totalAmount = Number.parseFloat(currentState.amount) || 0;
 		if (totalAmount > 0) {
 			updates.primarySplitAmount = totalAmount.toFixed(2);
