@@ -15,6 +15,7 @@ import {
 	PayerBoletoCard,
 	PayerPaymentStatusCard,
 } from "@/features/payers/components/details/payer-payment-method-cards";
+import { PayerReimbursementCard } from "@/features/payers/components/details/payer-reimbursement-card";
 import { PayerSharingCard } from "@/features/payers/components/details/payer-sharing-card";
 import { buildReadOnlyOptionSets } from "@/features/payers/lib/build-readonly-option-sets";
 import {
@@ -53,6 +54,7 @@ import { ExpandableWidgetCard } from "@/shared/components/widgets/expandable-wid
 import { getUserId } from "@/shared/lib/auth/server";
 import { prefetchLogoMappings } from "@/shared/lib/logo/prefetch-server";
 import { getPayerAccess } from "@/shared/lib/payers/access";
+import { PAYER_ROLE_THIRD_PARTY } from "@/shared/lib/payers/constants";
 import {
 	fetchPayerBoletoItems,
 	fetchPayerBoletoStats,
@@ -60,6 +62,7 @@ import {
 	fetchPayerHistory,
 	fetchPayerMonthlyBreakdown,
 	fetchPayerPaymentStatus,
+	fetchPayerReimbursementSummary,
 	type PayerCardUsageItem,
 } from "@/shared/lib/payers/details";
 import { parsePeriodParam } from "@/shared/utils/period";
@@ -85,6 +88,7 @@ const EMPTY_FILTERS: TransactionSearchFilters = {
 	settledFilter: null,
 	attachmentFilter: null,
 	dividedFilter: null,
+	receivableFilter: null,
 	amountMinFilter: null,
 	amountMaxFilter: null,
 	dateStartFilter: null,
@@ -184,6 +188,7 @@ export default async function Page({ params, searchParams }: PageProps) {
 		boletoStats,
 		boletoItems,
 		paymentStatus,
+		reimbursementSummary,
 		shareRows,
 		currentUserShare,
 		estabelecimentos,
@@ -219,6 +224,13 @@ export default async function Page({ params, searchParams }: PageProps) {
 			payerId: pagador.id,
 			period: selectedPeriod,
 		}),
+		pagador.role === PAYER_ROLE_THIRD_PARTY
+			? fetchPayerReimbursementSummary({
+					userId: dataOwnerId,
+					payerId: pagador.id,
+					period: selectedPeriod,
+				})
+			: Promise.resolve(null),
 		sharesPromise,
 		currentUserSharePromise,
 		fetchRecentEstablishments(userId),
@@ -356,6 +368,12 @@ export default async function Page({ params, searchParams }: PageProps) {
 					</TabsContent>
 
 					<TabsContent value="painel" className="space-y-4">
+						{pagador.role === PAYER_ROLE_THIRD_PARTY && reimbursementSummary ? (
+							<PayerReimbursementCard
+								periodLabel={periodLabel}
+								summary={reimbursementSummary}
+							/>
+						) : null}
 						<section className="grid gap-3 lg:grid-cols-2">
 							<PayerMonthlySummaryCard
 								periodLabel={periodLabel}

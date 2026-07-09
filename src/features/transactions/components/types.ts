@@ -34,6 +34,10 @@ export type TransactionItem = {
 	anticipationId: string | null;
 	seriesId: string | null;
 	splitGroupId: string | null;
+	splitMode: string | null;
+	reimbursementDebtorId: string | null;
+	reimbursementDebtorName: string | null;
+	reimbursementDebtorAvatar: string | null;
 	hasAttachments: boolean;
 	readonly?: boolean;
 };

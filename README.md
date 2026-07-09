@@ -33,6 +33,7 @@
 - [Como rodar o OpenMonetis](#-como-rodar-o-openmonetis)
   - [Perfil 1 — Usar](#perfil-1--usar-self-hosting)
   - [Perfil 2 — Desenvolver](#perfil-2--desenvolver)
+- [Manter o app sempre rodando](docs/always-on.md)
 - [Scripts Disponíveis](#-scripts-disponíveis)
 - [Docker](#-docker)
 - [Backup](#-backup)
@@ -121,6 +122,8 @@ Escolha o perfil que corresponde ao seu objetivo:
 | **Banco remoto (Supabase, Neon...)** | Sim (`docker compose up -d app`) | Sim (ajustar `DATABASE_URL`) |
 | **Como atualizar** | `pnpm docker:update` | `git pull` + `pnpm install` + `pnpm db:push` |
 | **Indicado para** | Self-hosting, VPS, servidor | Contribuidores, customizações |
+
+> Para manter o app sempre rodando após reiniciar o PC, veja [docs/always-on.md](docs/always-on.md).
 
 ---
 

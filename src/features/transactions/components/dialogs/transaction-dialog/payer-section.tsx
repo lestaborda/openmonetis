@@ -30,6 +30,15 @@ function SplitSummaryContent({ summary }: { summary: SplitSummary }) {
 		return <p className="text-xs text-muted-foreground">{summary.label}</p>;
 	}
 
+	if (summary.type === "reimbursement") {
+		return (
+			<p className="text-xs text-muted-foreground">
+				Saída {summary.expenseLabel} · A receber {summary.receivableLabel} de{" "}
+				{summary.debtorLabel}
+			</p>
+		);
+	}
+
 	return (
 		<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
 			<span>{summary.count} pessoas:</span>

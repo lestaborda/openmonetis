@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { createTransactionAction } from "@/features/transactions/actions";
 import { groupAndSortCategories } from "@/features/transactions/lib/category-helpers";
+import { DEFAULT_RECURRENCE_COUNT } from "@/features/transactions/lib/constants";
 import { Button } from "@/shared/components/ui/button";
 import {
 	Dialog,
@@ -143,8 +144,8 @@ export function BulkImportDialog({
 							? Number(item.installmentCount)
 							: undefined,
 					recurrenceCount:
-						item.condition === "Recorrente" && item.recurrenceCount
-							? Number(item.recurrenceCount)
+						item.condition === "Recorrente"
+							? Number(item.recurrenceCount) || DEFAULT_RECURRENCE_COUNT
 							: undefined,
 					dueDate:
 						item.paymentMethod === "Boleto" && item.dueDate

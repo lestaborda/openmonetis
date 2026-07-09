@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { TRANSACTION_CONDITIONS } from "@/features/transactions/lib/constants";
+import {
+	DEFAULT_RECURRENCE_COUNT,
+	MAX_RECURRENCE_COUNT,
+	TRANSACTION_CONDITIONS,
+} from "@/features/transactions/lib/constants";
 import { Label } from "@/shared/components/ui/label";
 import {
 	Popover,
@@ -173,26 +177,30 @@ export function ConditionSection({
 
 			{showRecurrence ? (
 				<div className="space-y-1 w-full md:w-1/2">
-					<Label htmlFor="recurrenceCount">Repetirá por</Label>
+					<Label htmlFor="recurrenceCount">Próximos meses</Label>
 					<Select
-						value={formState.recurrenceCount}
+						value={
+							formState.recurrenceCount || String(DEFAULT_RECURRENCE_COUNT)
+						}
 						onValueChange={(value) => onFieldChange("recurrenceCount", value)}
 					>
 						<SelectTrigger id="recurrenceCount" className="w-full">
-							<SelectValue placeholder="Selecione">
-								{formState.recurrenceCount
-									? `${formState.recurrenceCount} meses`
-									: null}
+							<SelectValue>
+								{`${formState.recurrenceCount || DEFAULT_RECURRENCE_COUNT} meses`}
 							</SelectValue>
 						</SelectTrigger>
 						<SelectContent>
-							{[...Array(47)].map((_, index) => (
+							{[...Array(MAX_RECURRENCE_COUNT - 1)].map((_, index) => (
 								<SelectItem key={index + 2} value={String(index + 2)}>
 									{index + 2} meses
 								</SelectItem>
 							))}
 						</SelectContent>
 					</Select>
+					<p className="text-xs text-muted-foreground">
+						Cria lançamentos mensais com o mesmo valor. Se parar de pagar,
+						exclua da série a partir do mês em que não pagará mais.
+					</p>
 				</div>
 			) : null}
 		</div>

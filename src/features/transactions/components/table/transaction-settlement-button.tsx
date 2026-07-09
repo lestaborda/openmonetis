@@ -30,10 +30,13 @@ export function TransactionSettlementButton({
 	isLoading,
 	onToggle,
 }: TransactionSettlementButtonProps) {
+	const isReceivable = Boolean(item.reimbursementDebtorId);
 	const isCreditCard = item.paymentMethod === CREDIT_CARD_PAYMENT_METHOD;
-	const canToggleSettlement = (
-		SETTLEABLE_PAYMENT_METHODS as readonly string[]
-	).includes(item.paymentMethod);
+	const canToggleSettlement =
+		isReceivable ||
+		(SETTLEABLE_PAYMENT_METHODS as readonly string[]).includes(
+			item.paymentMethod,
+		);
 
 	if (!canToggleSettlement && !isCreditCard) {
 		return null;
@@ -93,7 +96,9 @@ export function TransactionSettlementButton({
 						"transition-colors",
 						settled
 							? "bg-success/10 text-success hover:bg-success/20 hover:text-success"
-							: "text-muted-foreground hover:text-foreground",
+							: isReceivable
+								? "text-info hover:text-info"
+								: "text-muted-foreground hover:text-foreground",
 					)}
 				>
 					{isLoading ? (
@@ -104,12 +109,24 @@ export function TransactionSettlementButton({
 						<RiCheckboxBlankCircleLine className="size-4" aria-hidden />
 					)}
 					<span className="sr-only">
-						{settled ? "Desfazer pagamento" : "Marcar como pago"}
+						{isReceivable
+							? settled
+								? "Desfazer recebimento"
+								: "Marcar como recebido"
+							: settled
+								? "Desfazer pagamento"
+								: "Marcar como pago"}
 					</span>
 				</Button>
 			</TooltipTrigger>
 			<TooltipContent side="top">
-				{settled ? "Desfazer pagamento" : "Marcar como pago"}
+				{isReceivable
+					? settled
+						? "Desfazer recebimento"
+						: "Marcar como recebido"
+					: settled
+						? "Desfazer pagamento"
+						: "Marcar como pago"}
 			</TooltipContent>
 		</Tooltip>
 	);

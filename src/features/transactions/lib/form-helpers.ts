@@ -2,7 +2,9 @@ import type { TransactionItem } from "@/features/transactions/components/types";
 import { getTodayDateString } from "@/shared/utils/date";
 import { derivePeriodFromDate, getNextPeriod } from "@/shared/utils/period";
 import {
+	DEFAULT_RECURRENCE_COUNT,
 	PAYMENT_METHODS,
+	SPLIT_MODES,
 	TRANSACTION_CONDITIONS,
 	TRANSACTION_TYPES,
 } from "./constants";
@@ -75,6 +77,7 @@ export type TransactionFormState = {
 	secondaryPayerId: string | undefined;
 	splitShares: Array<{ payerId: string; amount: string }>;
 	isSplit: boolean;
+	splitMode: string;
 	primarySplitAmount: string;
 	secondarySplitAmount: string;
 	accountId: string | undefined;
@@ -174,7 +177,7 @@ export function buildTransactionInitialState(
 		secondaryPayerId: undefined,
 		splitShares: [],
 		isSplit: false,
-
+		splitMode: SPLIT_MODES.REIMBURSEMENT,
 		primarySplitAmount: "",
 		secondarySplitAmount: "",
 		accountId:
@@ -205,7 +208,9 @@ export function buildTransactionInitialState(
 				: "1",
 		recurrenceCount: transaction?.recurrenceCount
 			? String(transaction.recurrenceCount)
-			: "",
+			: transaction?.condition === "Recorrente"
+				? String(DEFAULT_RECURRENCE_COUNT)
+				: "",
 		dueDate: transaction?.dueDate ?? "",
 		boletoPaymentDate,
 		note: transaction?.note ?? "",
@@ -268,6 +273,8 @@ export function applyFieldDependencies(
 		}
 		if (value !== "Recorrente") {
 			updates.recurrenceCount = "";
+		} else {
+			updates.recurrenceCount = String(DEFAULT_RECURRENCE_COUNT);
 		}
 	}
 
@@ -337,10 +344,12 @@ export function applyFieldDependencies(
 		updates.splitShares = [];
 		updates.primarySplitAmount = "";
 		updates.secondarySplitAmount = "";
+		updates.splitMode = SPLIT_MODES.REIMBURSEMENT;
 	}
 
 	// When split is enabled and amount exists, calculate initial split amounts
 	if (key === "isSplit" && value === true) {
+		updates.splitMode = SPLIT_MODES.REIMBURSEMENT;
 		const totalAmount = Number.parseFloat(currentState.amount) || 0;
 		if (totalAmount > 0) {
 			updates.primarySplitAmount = totalAmount.toFixed(2);

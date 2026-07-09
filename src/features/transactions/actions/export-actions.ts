@@ -35,6 +35,7 @@ const exportTransactionsSchema: z.ZodType<TransactionsExportContext> = z.object(
 			settledFilter: z.string().nullable(),
 			attachmentFilter: z.string().nullable(),
 			dividedFilter: z.string().nullable(),
+			receivableFilter: z.string().nullable(),
 			amountMinFilter: z.number().nullable(),
 			amountMaxFilter: z.number().nullable(),
 			dateStartFilter: z

@@ -39,6 +39,7 @@ export const DEFAULT_CATEGORIES: DefaultCategory[] = [
 	{ name: "Vendas", type: "receita", icon: "RiShoppingCartLine" },
 	{ name: "Prêmios", type: "receita", icon: "RiMedalLine" },
 	{ name: "Reembolso", type: "receita", icon: "RiRefundLine" },
+	{ name: "A receber", type: "receita", icon: "RiHandCoinLine" },
 	{ name: "Aluguel recebido", type: "receita", icon: "RiBuilding2Line" },
 	{ name: "Outras receitas", type: "receita", icon: "RiMore2Line" },
 	{ name: "Saldo inicial", type: "receita", icon: "RiWallet2Line" },

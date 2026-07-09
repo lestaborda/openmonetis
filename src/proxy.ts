@@ -80,6 +80,11 @@ export default async function proxy(request: NextRequest) {
 		return NextResponse.next();
 	}
 
+	// Instância pessoal: abrir direto no app em vez da landing page
+	if (pathname === "/") {
+		return NextResponse.redirect(new URL("/dashboard", request.url));
+	}
+
 	// Validate actual session, not just cookie existence
 	const session = await auth.api.getSession({
 		headers: request.headers,

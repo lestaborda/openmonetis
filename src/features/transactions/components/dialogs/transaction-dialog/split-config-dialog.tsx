@@ -1,5 +1,6 @@
 "use client";
 
+import { SPLIT_MODES } from "@/features/transactions/lib/constants";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 import { CurrencyInput } from "@/shared/components/ui/currency-input";
@@ -12,6 +13,8 @@ import {
 	DialogTitle,
 } from "@/shared/components/ui/dialog";
 import { Input } from "@/shared/components/ui/input";
+import { Label } from "@/shared/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/shared/components/ui/radio-group";
 import { formatCurrency } from "@/shared/utils/currency";
 import { safeToNumber } from "@/shared/utils/number";
 import { cn } from "@/shared/utils/ui";
@@ -95,6 +98,29 @@ export function getSplitSummaryData(
 		};
 	}
 
+	const isReimbursement = formState.splitMode === SPLIT_MODES.REIMBURSEMENT;
+
+	if (isReimbursement) {
+		const receivableTotal = formState.splitShares.reduce(
+			(sum, share) => sum + safeToNumber(share.amount),
+			0,
+		);
+		const debtorNames = formState.splitShares
+			.map((share) =>
+				payerOptions.find((option) => option.value === share.payerId),
+			)
+			.filter(Boolean)
+			.map((option) => option?.label.split(/\s+/)[0] ?? "")
+			.filter(Boolean);
+
+		return {
+			type: "reimbursement" as const,
+			expenseLabel: formatCurrency(totalAmount),
+			receivableLabel: formatCurrency(receivableTotal),
+			debtorLabel: debtorNames.join(", ") || "Configure o reembolso",
+		};
+	}
+
 	const participants = [
 		formState.payerId,
 		...formState.splitShares.map((share) => share.payerId),
@@ -146,6 +172,7 @@ export function SplitConfigDialog({
 	splitPayerOptions,
 	totalAmount,
 }: SplitConfigDialogProps) {
+	const isReimbursement = formState.splitMode === SPLIT_MODES.REIMBURSEMENT;
 	const selectedSplitIds = new Set(
 		formState.splitShares.map((share) => share.payerId),
 	);
@@ -156,20 +183,40 @@ export function SplitConfigDialog({
 		payerOptions.find((option) => option.value === formState.payerId) ??
 		payerOptions.find((option) => option.role === "admin") ??
 		null;
-	const splitTotal =
-		safeToNumber(formState.primarySplitAmount) +
-		formState.splitShares.reduce(
-			(total, share) => total + safeToNumber(share.amount),
-			0,
-		);
+	const splitTotal = isReimbursement
+		? formState.splitShares.reduce(
+				(total, share) => total + safeToNumber(share.amount),
+				0,
+			)
+		: safeToNumber(formState.primarySplitAmount) +
+			formState.splitShares.reduce(
+				(total, share) => total + safeToNumber(share.amount),
+				0,
+			);
 	const splitDifference = totalAmount - splitTotal;
-	const hasSplitDifference = Math.abs(splitDifference) > 0.01;
-	const splitDifferenceLabel =
-		splitDifference > 0
+	const hasSplitDifference = isReimbursement
+		? splitDifference < -0.01
+		: Math.abs(splitDifference) > 0.01;
+	const splitDifferenceLabel = isReimbursement
+		? `Excede o total em ${formatCurrency(Math.abs(splitDifference))}`
+		: splitDifference > 0
 			? `Faltam ${formatCurrency(splitDifference)}`
 			: `Sobram ${formatCurrency(Math.abs(splitDifference))}`;
 
 	const applyEqualSplit = (shares = formState.splitShares) => {
+		if (isReimbursement) {
+			const amounts = getEqualAmounts(shares.length, totalAmount);
+			if (amounts.length === 0) return;
+			onFieldChange(
+				"splitShares",
+				shares.map((share, index) => ({
+					...share,
+					amount: amounts[index] ?? "0.00",
+				})),
+			);
+			return;
+		}
+
 		const participantCount = (formState.payerId ? 1 : 0) + shares.length;
 		const amounts = getEqualAmounts(participantCount, totalAmount);
 
@@ -197,12 +244,18 @@ export function SplitConfigDialog({
 		const nextShares = formState.splitShares.map((share) =>
 			share.payerId === payerId ? { ...share, amount: value } : share,
 		);
+
+		onFieldChange("splitShares", nextShares);
+
+		if (isReimbursement) {
+			return;
+		}
+
 		const othersTotal = nextShares.reduce(
 			(total, share) => total + safeToNumber(share.amount),
 			0,
 		);
 
-		onFieldChange("splitShares", nextShares);
 		onFieldChange(
 			"primarySplitAmount",
 			Math.max(0, totalAmount - othersTotal).toFixed(2),
@@ -245,11 +298,58 @@ export function SplitConfigDialog({
 				<DialogHeader>
 					<DialogTitle>Dividir lançamento</DialogTitle>
 					<DialogDescription>
-						Marque as pessoas e ajuste os valores se precisar.
+						{isReimbursement
+							? "Registre a saída integral e o que cada pessoa deve reembolsar."
+							: "Marque as pessoas e ajuste os valores se precisar."}
 					</DialogDescription>
 				</DialogHeader>
 
 				<div className="min-h-0 space-y-2 overflow-y-auto pr-1">
+					<RadioGroup
+						value={formState.splitMode || SPLIT_MODES.REIMBURSEMENT}
+						onValueChange={(value) =>
+							onFieldChange("splitMode", value as FormState["splitMode"])
+						}
+						className="grid gap-2 sm:grid-cols-2"
+					>
+						<div className="flex items-start gap-2 rounded-lg border p-3">
+							<RadioGroupItem
+								value={SPLIT_MODES.COST_SHARE}
+								id="split-mode-cost-share"
+								className="mt-0.5"
+							/>
+							<Label
+								htmlFor="split-mode-cost-share"
+								className="cursor-pointer space-y-1 font-normal"
+							>
+								<span className="block text-sm font-medium">
+									Partilhar custo
+								</span>
+								<span className="block text-xs text-muted-foreground">
+									Cada pessoa recebe sua parte como despesa.
+								</span>
+							</Label>
+						</div>
+						<div className="flex items-start gap-2 rounded-lg border p-3">
+							<RadioGroupItem
+								value={SPLIT_MODES.REIMBURSEMENT}
+								id="split-mode-reimbursement"
+								className="mt-0.5"
+							/>
+							<Label
+								htmlFor="split-mode-reimbursement"
+								className="cursor-pointer space-y-1 font-normal"
+							>
+								<span className="block text-sm font-medium">
+									Pago antecipado
+								</span>
+								<span className="block text-xs text-muted-foreground">
+									Saída integral + valores a receber de terceiros.
+								</span>
+							</Label>
+						</div>
+					</RadioGroup>
+
 					<div
 						className={cn(
 							"flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2.5",
@@ -270,7 +370,11 @@ export function SplitConfigDialog({
 										: "text-muted-foreground",
 								)}
 							>
-								{hasSplitDifference ? splitDifferenceLabel : "Tudo certo"}
+								{hasSplitDifference
+									? splitDifferenceLabel
+									: isReimbursement
+										? "Valores a receber dentro do total"
+										: "Tudo certo"}
 							</p>
 						</div>
 						<Button
@@ -291,32 +395,47 @@ export function SplitConfigDialog({
 
 					<div className="space-y-2">
 						{primaryPayerOption ? (
-							<div className={cn(splitRowClassName, "bg-background")}>
+							<div
+								className={cn(
+									splitRowClassName,
+									"bg-background",
+									isReimbursement && "sm:grid-cols-[minmax(0,1fr)]",
+								)}
+							>
 								<div className="flex min-w-0 items-center gap-2 text-sm">
 									<Checkbox checked disabled aria-hidden />
 									<PayerSelectContent
 										label={primaryPayerOption.label}
 										avatarUrl={primaryPayerOption.avatarUrl}
 									/>
+									{isReimbursement ? (
+										<span className="ml-auto text-xs text-muted-foreground">
+											Paga {formatCurrency(totalAmount)}
+										</span>
+									) : null}
 								</div>
-								<CurrencyInput
-									value={formState.primarySplitAmount}
-									onValueChange={(value) =>
-										onFieldChange("primarySplitAmount", value)
-									}
-									placeholder="R$ 0,00"
-									aria-label={`Valor de ${primaryPayerOption.label}`}
-									className="h-9 text-sm"
-								/>
-								{renderPercentInput(
-									formState.primarySplitAmount,
-									(percent) =>
-										onFieldChange(
-											"primarySplitAmount",
-											percentToAmount(percent, totalAmount),
-										),
-									`Percentual de ${primaryPayerOption.label}`,
-								)}
+								{!isReimbursement ? (
+									<>
+										<CurrencyInput
+											value={formState.primarySplitAmount}
+											onValueChange={(value) =>
+												onFieldChange("primarySplitAmount", value)
+											}
+											placeholder="R$ 0,00"
+											aria-label={`Valor de ${primaryPayerOption.label}`}
+											className="h-9 text-sm"
+										/>
+										{renderPercentInput(
+											formState.primarySplitAmount,
+											(percent) =>
+												onFieldChange(
+													"primarySplitAmount",
+													percentToAmount(percent, totalAmount),
+												),
+											`Percentual de ${primaryPayerOption.label}`,
+										)}
+									</>
+								) : null}
 							</div>
 						) : null}
 
