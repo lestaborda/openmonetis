@@ -350,6 +350,14 @@ export function SplitConfigDialog({
 						</div>
 					</RadioGroup>
 
+					{isReimbursement ? (
+						<p className="rounded-lg border border-info/20 bg-info/5 px-3 py-2 text-xs text-muted-foreground">
+							<strong className="font-medium text-foreground">Pessoa</strong>{" "}
+							indica quem pagou a despesa integral. A divisão abaixo define quem
+							deve reembolsar.
+						</p>
+					) : null}
+
 					<div
 						className={cn(
 							"flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2.5",

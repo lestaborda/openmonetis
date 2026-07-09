@@ -225,7 +225,7 @@ export function CategoryReportFilters({
 					</Popover>
 
 					{/* Start Period Picker */}
-					<Popover open={startMonthOpen} onOpenChange={setStartMonthOpen}>
+					<Popover open={startMonthOpen} onOpenChange={setStartMonthOpen} modal>
 						<PopoverTrigger asChild>
 							<Button
 								variant="outline"
@@ -236,7 +236,12 @@ export function CategoryReportFilters({
 								{formatShortPeriodLabel(filters.startPeriod)}
 							</Button>
 						</PopoverTrigger>
-						<PopoverContent className="w-auto p-0" align="start">
+						<PopoverContent
+							className="z-[100] w-auto p-0"
+							align="start"
+							onOpenAutoFocus={(event) => event.preventDefault()}
+							onCloseAutoFocus={(event) => event.preventDefault()}
+						>
 							<MonthPicker
 								selectedMonth={periodToDate(filters.startPeriod)}
 								onMonthSelect={(date) => handleDateChange("startPeriod", date)}
@@ -245,7 +250,7 @@ export function CategoryReportFilters({
 					</Popover>
 
 					{/* End Period Picker */}
-					<Popover open={endMonthOpen} onOpenChange={setEndMonthOpen}>
+					<Popover open={endMonthOpen} onOpenChange={setEndMonthOpen} modal>
 						<PopoverTrigger asChild>
 							<Button
 								variant="outline"
@@ -256,7 +261,12 @@ export function CategoryReportFilters({
 								{formatShortPeriodLabel(filters.endPeriod)}
 							</Button>
 						</PopoverTrigger>
-						<PopoverContent className="w-auto p-0" align="start">
+						<PopoverContent
+							className="z-[100] w-auto p-0"
+							align="start"
+							onOpenAutoFocus={(event) => event.preventDefault()}
+							onCloseAutoFocus={(event) => event.preventDefault()}
+						>
 							<MonthPicker
 								selectedMonth={periodToDate(filters.endPeriod)}
 								onMonthSelect={(date) => handleDateChange("endPeriod", date)}

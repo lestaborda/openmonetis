@@ -80,8 +80,13 @@ export function ReviewTable({
 	const virtualizer = useVirtualizer({
 		count: rows.length,
 		getScrollElement: () => parentRef.current,
-		estimateSize: () => 44,
+		estimateSize: () => 52,
 		overscan: 8,
+		getItemKey: (index) => {
+			const row = rows[index];
+			if (!row) return index;
+			return `${row.externalId ?? "row"}-${row.transactionType}-${row.date}-${row.amount}-${index}`;
+		},
 	});
 
 	const virtualRows = virtualizer.getVirtualItems();
@@ -141,7 +146,9 @@ export function ReviewTable({
 							);
 							return (
 								<TableRow
-									key={row.externalId ?? `${row.date}-${index}`}
+									key={virtualRow.key}
+									data-index={virtualRow.index}
+									ref={virtualizer.measureElement}
 									className={
 										row.isDuplicate && !row.selected ? "opacity-50" : ""
 									}

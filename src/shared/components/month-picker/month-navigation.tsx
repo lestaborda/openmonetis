@@ -90,7 +90,7 @@ export default function MonthNavigation() {
 				/>
 
 				<div className="flex min-w-0 items-center">
-					<Popover open={isPickerOpen} onOpenChange={setIsPickerOpen}>
+					<Popover open={isPickerOpen} onOpenChange={setIsPickerOpen} modal>
 						<PopoverTrigger asChild>
 							<Button
 								variant="ghost"
@@ -116,10 +116,12 @@ export default function MonthNavigation() {
 							</Button>
 						</PopoverTrigger>
 						<PopoverContent
-							className="w-auto p-0"
+							className="z-[100] w-auto p-0"
 							align="start"
 							onMouseEnter={handlePickerOpen}
 							onMouseLeave={handlePickerClose}
+							onOpenAutoFocus={(event) => event.preventDefault()}
+							onCloseAutoFocus={(event) => event.preventDefault()}
 						>
 							<MonthPicker
 								selectedMonth={periodToDate(period)}

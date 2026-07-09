@@ -1,4 +1,5 @@
 import type { TransactionItem } from "@/features/transactions/components/types";
+import type { SplitGroupContext } from "@/features/transactions/lib/split-group";
 import { getTodayDateString } from "@/shared/utils/date";
 import { derivePeriodFromDate, getNextPeriod } from "@/shared/utils/period";
 import {
@@ -63,6 +64,46 @@ export function deriveCreditCardPeriod(
 }
 
 /**
+ * Scales absolute amounts by newTotal/previousTotal and redistributes
+ * leftover cents so the scaled parts keep the original proportions.
+ * `targetSum` defaults to the scaled sum of the parts (reimbursement);
+ * pass `newTotal` for cost_share so parts always close the full amount.
+ */
+function scaleAmountsProportionally(
+	amounts: number[],
+	previousTotal: number,
+	newTotal: number,
+	targetSum = (amounts.reduce((sum, amount) => sum + amount, 0) * newTotal) /
+		previousTotal,
+): string[] {
+	if (amounts.length === 0 || previousTotal <= 0 || newTotal <= 0) {
+		return amounts.map(() => "0.00");
+	}
+
+	const ratio = newTotal / previousTotal;
+	const rawCents = amounts.map((amount) => Math.round(amount * ratio * 100));
+	const targetCents = Math.round(targetSum * 100);
+	let diff = targetCents - rawCents.reduce((sum, cents) => sum + cents, 0);
+
+	const adjusted = [...rawCents];
+	let index = 0;
+	while (diff !== 0 && adjusted.length > 0) {
+		const step = diff > 0 ? 1 : -1;
+		const current = adjusted[index % adjusted.length] ?? 0;
+		if (step < 0 && current <= 0) {
+			index += 1;
+			if (index > adjusted.length * 2) break;
+			continue;
+		}
+		adjusted[index % adjusted.length] = current + step;
+		diff -= step;
+		index += 1;
+	}
+
+	return adjusted.map((cents) => (Math.max(0, cents) / 100).toFixed(2));
+}
+
+/**
  * Form state type for lancamento dialog
  */
 export type TransactionFormState = {
@@ -104,7 +145,52 @@ type TransactionFormOverrides = {
 	defaultAmount?: string | null;
 	defaultTransactionType?: "Despesa" | "Receita";
 	isImporting?: boolean;
+	splitContext?: SplitGroupContext | null;
 };
+
+/**
+ * Builds a TransactionItem-shaped view of the expense anchor when editing
+ * a reimbursement receivable, so the form shows the full group context.
+ */
+export function resolveEditTransactionAnchor(
+	transaction: TransactionItem | undefined,
+	splitContext?: SplitGroupContext | null,
+): TransactionItem | undefined {
+	if (!transaction || !splitContext?.expense) return transaction;
+	if (splitContext.splitMode !== SPLIT_MODES.REIMBURSEMENT) return transaction;
+
+	const expense = splitContext.expense;
+
+	return {
+		...transaction,
+		id: expense.id,
+		name: expense.name,
+		purchaseDate: expense.purchaseDate || transaction.purchaseDate,
+		period: expense.period,
+		transactionType: expense.transactionType,
+		amount: Number(expense.amount),
+		condition: expense.condition,
+		paymentMethod: expense.paymentMethod,
+		payerId: expense.payerId,
+		accountId: expense.accountId,
+		cardId: expense.cardId,
+		categoryId: expense.categoryId,
+		note: expense.note,
+		isSettled: expense.isSettled,
+		dueDate: expense.dueDate,
+		boletoPaymentDate: expense.boletoPaymentDate,
+		installmentCount: expense.installmentCount,
+		currentInstallment: expense.currentInstallment,
+		recurrenceCount: expense.recurrenceCount,
+		seriesId: expense.seriesId,
+		splitGroupId: expense.splitGroupId,
+		splitMode: expense.splitMode,
+		isDivided: expense.isDivided,
+		reimbursementDebtorId: null,
+		reimbursementDebtorName: null,
+		reimbursementDebtorAvatar: null,
+	};
+}
 
 /**
  * Builds initial form state from lancamento data and defaults
@@ -115,12 +201,15 @@ export function buildTransactionInitialState(
 	preferredPeriod?: string,
 	overrides?: TransactionFormOverrides,
 ): TransactionFormState {
-	const purchaseDate = transaction?.purchaseDate
-		? transaction.purchaseDate.slice(0, 10)
+	const splitContext = overrides?.splitContext ?? null;
+	const anchored = resolveEditTransactionAnchor(transaction, splitContext);
+
+	const purchaseDate = anchored?.purchaseDate
+		? anchored.purchaseDate.slice(0, 10)
 		: (overrides?.defaultPurchaseDate ?? getTodayDateString());
 
 	const paymentMethod =
-		transaction?.paymentMethod ??
+		anchored?.paymentMethod ??
 		overrides?.defaultPaymentMethod ??
 		PAYMENT_METHODS[0];
 
@@ -134,90 +223,96 @@ export function buildTransactionInitialState(
 	const isImporting = overrides?.isImporting ?? false;
 	const fallbackPayerId = isImporting
 		? (defaultPayerId ?? null)
-		: (transaction?.payerId ?? defaultPayerId ?? null);
+		: (anchored?.payerId ?? defaultPayerId ?? null);
 
 	const boletoPaymentDate =
-		transaction?.boletoPaymentDate ??
-		(paymentMethod === "Boleto" && (transaction?.isSettled ?? false)
+		anchored?.boletoPaymentDate ??
+		(paymentMethod === "Boleto" && (anchored?.isSettled ?? false)
 			? getTodayDateString()
 			: "");
 
 	// Calcular o valor correto para importação de parcelados
 	let amountValue = overrides?.defaultAmount ?? "";
-	if (!amountValue && typeof transaction?.amount === "number") {
-		let baseAmount = Math.abs(transaction.amount);
+	if (!amountValue && typeof anchored?.amount === "number") {
+		let baseAmount = Math.abs(anchored.amount);
 
 		// Se está importando e é parcelado, usar o valor total (parcela * quantidade)
 		if (
 			isImporting &&
-			transaction.condition === "Parcelado" &&
-			transaction.installmentCount
+			anchored.condition === "Parcelado" &&
+			anchored.installmentCount
 		) {
-			baseAmount = baseAmount * transaction.installmentCount;
+			baseAmount = baseAmount * anchored.installmentCount;
 		}
 
 		amountValue = (Math.round(baseAmount * 100) / 100).toFixed(2);
 	}
 
+	const hasSplit =
+		Boolean(splitContext) &&
+		(splitContext?.splitShares.length ?? 0) > 0 &&
+		!isImporting;
+
 	return {
 		purchaseDate,
 		period:
-			transaction?.period && /^\d{4}-\d{2}$/.test(transaction.period)
-				? transaction.period
+			anchored?.period && /^\d{4}-\d{2}$/.test(anchored.period)
+				? anchored.period
 				: fallbackPeriod,
-		name: transaction?.name ?? overrides?.defaultName ?? "",
+		name: anchored?.name ?? overrides?.defaultName ?? "",
 		transactionType:
-			transaction?.transactionType ??
+			anchored?.transactionType ??
 			overrides?.defaultTransactionType ??
 			TRANSACTION_TYPES[0],
 		amount: amountValue,
-		condition: transaction?.condition ?? TRANSACTION_CONDITIONS[0],
+		condition: anchored?.condition ?? TRANSACTION_CONDITIONS[0],
 		paymentMethod,
 		payerId: fallbackPayerId ?? undefined,
 		secondaryPayerId: undefined,
-		splitShares: [],
-		isSplit: false,
-		splitMode: SPLIT_MODES.REIMBURSEMENT,
-		primarySplitAmount: "",
+		splitShares: hasSplit ? (splitContext?.splitShares ?? []) : [],
+		isSplit: hasSplit,
+		splitMode:
+			splitContext?.splitMode ??
+			anchored?.splitMode ??
+			SPLIT_MODES.REIMBURSEMENT,
+		primarySplitAmount: hasSplit
+			? (splitContext?.primarySplitAmount ?? "")
+			: "",
 		secondarySplitAmount: "",
 		accountId:
 			paymentMethod === "Cartão de crédito"
 				? undefined
 				: isImporting
 					? undefined
-					: (transaction?.accountId ??
-						overrides?.defaultAccountId ??
-						undefined),
+					: (anchored?.accountId ?? overrides?.defaultAccountId ?? undefined),
 		cardId:
 			paymentMethod === "Cartão de crédito"
 				? isImporting
 					? (overrides?.defaultCardId ?? undefined)
-					: (transaction?.cardId ?? overrides?.defaultCardId ?? undefined)
+					: (anchored?.cardId ?? overrides?.defaultCardId ?? undefined)
 				: undefined,
-		categoryId: isImporting
-			? undefined
-			: (transaction?.categoryId ?? undefined),
-		installmentCount: transaction?.installmentCount
-			? String(transaction.installmentCount)
+		categoryId: isImporting ? undefined : (anchored?.categoryId ?? undefined),
+		installmentCount: anchored?.installmentCount
+			? String(anchored.installmentCount)
 			: "",
 		startInstallment:
 			isImporting &&
-			transaction?.condition === "Parcelado" &&
-			transaction.currentInstallment
-				? String(transaction.currentInstallment)
+			anchored?.condition === "Parcelado" &&
+			anchored.currentInstallment
+				? String(anchored.currentInstallment)
 				: "1",
-		recurrenceCount: transaction?.recurrenceCount
-			? String(transaction.recurrenceCount)
-			: transaction?.condition === "Recorrente"
+		recurrenceCount: anchored?.recurrenceCount
+			? String(anchored.recurrenceCount)
+			: anchored?.condition === "Recorrente"
 				? String(DEFAULT_RECURRENCE_COUNT)
 				: "",
-		dueDate: transaction?.dueDate ?? "",
+		dueDate: anchored?.dueDate ?? "",
 		boletoPaymentDate,
-		note: transaction?.note ?? "",
+		note: anchored?.note ?? "",
 		isSettled:
 			paymentMethod === "Cartão de crédito"
 				? null
-				: (transaction?.isSettled ?? true),
+				: (anchored?.isSettled ?? true),
 	};
 }
 
@@ -360,7 +455,61 @@ export function applyFieldDependencies(
 	// When amount changes and split is enabled, recalculate split amounts
 	if (key === "amount" && typeof value === "string" && currentState.isSplit) {
 		const totalAmount = Number.parseFloat(value) || 0;
-		if (totalAmount > 0) {
+		const previousTotal = Number.parseFloat(currentState.amount) || 0;
+
+		if (totalAmount <= 0) {
+			updates.primarySplitAmount = "";
+			updates.splitShares = currentState.splitShares.map((share) => ({
+				...share,
+				amount: "",
+			}));
+		} else if (
+			currentState.splitMode === SPLIT_MODES.REIMBURSEMENT &&
+			currentState.splitShares.length > 0 &&
+			previousTotal > 0
+		) {
+			// Contas variáveis (luz/aluguel): mantém a proporção do a receber
+			const scaled = scaleAmountsProportionally(
+				currentState.splitShares.map(
+					(share) => Number.parseFloat(share.amount) || 0,
+				),
+				previousTotal,
+				totalAmount,
+			);
+			updates.splitShares = currentState.splitShares.map((share, index) => ({
+				...share,
+				amount: scaled[index] ?? "0.00",
+			}));
+			const receivableTotal = scaled.reduce(
+				(sum, amount) => sum + (Number.parseFloat(amount) || 0),
+				0,
+			);
+			updates.primarySplitAmount = Math.max(
+				0,
+				totalAmount - receivableTotal,
+			).toFixed(2);
+		} else if (
+			currentState.splitMode === SPLIT_MODES.COST_SHARE &&
+			previousTotal > 0
+		) {
+			const parts = [
+				Number.parseFloat(currentState.primarySplitAmount) || 0,
+				...currentState.splitShares.map(
+					(share) => Number.parseFloat(share.amount) || 0,
+				),
+			];
+			const scaled = scaleAmountsProportionally(
+				parts,
+				previousTotal,
+				totalAmount,
+				totalAmount,
+			);
+			updates.primarySplitAmount = scaled[0] ?? "0.00";
+			updates.splitShares = currentState.splitShares.map((share, index) => ({
+				...share,
+				amount: scaled[index + 1] ?? "0.00",
+			}));
+		} else if (totalAmount > 0) {
 			const otherTotal = currentState.splitShares.reduce(
 				(total, share) => total + (Number.parseFloat(share.amount) || 0),
 				0,
@@ -369,12 +518,6 @@ export function applyFieldDependencies(
 				0,
 				totalAmount - otherTotal,
 			).toFixed(2);
-		} else {
-			updates.primarySplitAmount = "";
-			updates.splitShares = currentState.splitShares.map((share) => ({
-				...share,
-				amount: "",
-			}));
 		}
 	}
 

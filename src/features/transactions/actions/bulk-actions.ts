@@ -480,6 +480,7 @@ export async function updateTransactionBulkAction(
 					eq(transactions.seriesId, existing.seriesId),
 					eq(transactions.userId, user.id),
 					eq(transactions.period, existing.period),
+					isNull(transactions.reimbursementDebtorId),
 				),
 				orderBy: asc(transactions.purchaseDate),
 			});
@@ -520,6 +521,7 @@ export async function updateTransactionBulkAction(
 					eq(transactions.userId, user.id),
 					sql`${transactions.period} >= ${existing.period}`,
 					payerIdFilter,
+					isNull(transactions.reimbursementDebtorId),
 				),
 				orderBy: asc(transactions.purchaseDate),
 			});
@@ -555,6 +557,7 @@ export async function updateTransactionBulkAction(
 					eq(transactions.seriesId, existing.seriesId),
 					eq(transactions.userId, user.id),
 					payerIdFilter,
+					isNull(transactions.reimbursementDebtorId),
 				),
 				orderBy: asc(transactions.purchaseDate),
 			});

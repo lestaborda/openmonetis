@@ -44,7 +44,7 @@ export function PeriodPicker({
 	};
 
 	return (
-		<Popover open={open} onOpenChange={setOpen}>
+		<Popover open={open} onOpenChange={setOpen} modal>
 			<PopoverTrigger asChild>
 				<Button
 					variant={variant}
@@ -60,7 +60,12 @@ export function PeriodPicker({
 					{value ? formatMonthYearLabel(value) : placeholder}
 				</Button>
 			</PopoverTrigger>
-			<PopoverContent className="w-auto p-0" align="start">
+			<PopoverContent
+				className="z-[100] w-auto p-0"
+				align="start"
+				onOpenAutoFocus={(event) => event.preventDefault()}
+				onCloseAutoFocus={(event) => event.preventDefault()}
+			>
 				<MonthPicker
 					selectedMonth={value ? periodToDate(value) : new Date()}
 					onMonthSelect={handleSelect}
