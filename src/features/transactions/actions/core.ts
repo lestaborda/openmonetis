@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, isNull, ne, not, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, not, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
 	cards,
@@ -10,6 +10,7 @@ import {
 	transactions,
 } from "@/db/schema";
 import {
+	DEFAULT_RECEIVABLE_PAYMENT_METHOD,
 	DEFAULT_RECURRENCE_COUNT,
 	MAX_RECURRENCE_COUNT,
 	PAYMENT_METHODS,
@@ -563,14 +564,23 @@ export const createSchema = baseFields
 		importFromTransactionId: uuidSchema("Lançamento fonte").optional(),
 	})
 	.superRefine(refineLancamento);
+export const SERIES_EDIT_SCOPES = [
+	"current",
+	"period",
+	"future",
+	"all",
+] as const;
+
 export const updateSchema = baseFields
 	.extend({
 		id: uuidSchema("Lançamento"),
+		seriesScope: z.enum(SERIES_EDIT_SCOPES).optional(),
 	})
 	.superRefine(refineLancamento);
 
 export const deleteSchema = z.object({
 	id: uuidSchema("Lançamento"),
+	scope: z.enum(["current", "group"]).optional().default("current"),
 });
 
 export const toggleSettlementSchema = z.object({
@@ -579,6 +589,7 @@ export const toggleSettlementSchema = z.object({
 		message: "Informe o status de pagamento.",
 	}),
 	paymentAccountId: uuidSchema("Conta de pagamento").nullable().optional(),
+	paymentMethod: z.enum(PAYMENT_METHODS).optional(),
 	paymentDate: z
 		.string()
 		.regex(/^\d{4}-\d{2}-\d{2}$/u, "Data de pagamento inválida.")
@@ -912,7 +923,36 @@ export const buildTransactionRecords = ({
 	return records;
 };
 
-const REIMBURSEMENT_PAYMENT_METHOD = "Transferência bancária" as const;
+const REIMBURSEMENT_PAYMENT_METHOD = DEFAULT_RECEIVABLE_PAYMENT_METHOD;
+
+/**
+ * Conta destino das receitas "a receber".
+ * Em cartão a despesa não tem accountId — usamos a conta vinculada ao cartão.
+ */
+export async function resolveReceivableAccountId({
+	userId,
+	accountId,
+	cardId,
+}: {
+	userId: string;
+	accountId?: string | null;
+	cardId?: string | null;
+}): Promise<string | null> {
+	if (accountId) {
+		return accountId;
+	}
+
+	if (!cardId) {
+		return null;
+	}
+
+	const card = await db.query.cards.findFirst({
+		columns: { accountId: true },
+		where: and(eq(cards.id, cardId), eq(cards.userId, userId)),
+	});
+
+	return card?.accountId ?? null;
+}
 
 type BuildReimbursementRecordsParams = {
 	data: BaseInput;
@@ -926,6 +966,7 @@ type BuildReimbursementRecordsParams = {
 	shouldNullifySettled: boolean;
 	seriesId: string | null;
 	receivableCategoryId: string;
+	receivableAccountId?: string | null;
 };
 
 export const buildDebtorShares = (splitShares?: SplitShareInput[]): Share[] => {
@@ -951,6 +992,7 @@ export const buildReimbursementRecords = ({
 	shouldNullifySettled,
 	seriesId,
 	receivableCategoryId,
+	receivableAccountId,
 }: BuildReimbursementRecordsParams): TransactionInsert[] => {
 	const records: TransactionInsert[] = [];
 	const payerId = data.payerId;
@@ -981,7 +1023,7 @@ export const buildReimbursementRecords = ({
 		condition: data.condition,
 		paymentMethod: REIMBURSEMENT_PAYMENT_METHOD,
 		note: data.note ?? null,
-		accountId: null,
+		accountId: receivableAccountId ?? data.accountId ?? null,
 		cardId: null,
 		categoryId: receivableCategoryId,
 		payerId,
@@ -1177,6 +1219,748 @@ export const buildReimbursementRecords = ({
 
 	return records;
 };
+
+type SyncReimbursementParams = {
+	userId: string;
+	expenseId: string;
+	splitGroupId: string | null;
+	data: BaseInput;
+	period: string;
+	purchaseDate: Date;
+	dueDate: Date | null;
+	boletoPaymentDate: Date | null;
+	totalCents: number;
+	shouldNullifySettled: boolean;
+	receivableCategoryId: string;
+	receivableAccountId?: string | null;
+	existingSeriesId: string | null;
+	existingInstallmentCount: number | null;
+	existingCurrentInstallment: number | null;
+	existingRecurrenceCount: number | null;
+};
+
+/**
+ * Updates the expense row and syncs receivable siblings for a reimbursement split.
+ * Creates missing debtors, updates amounts, deletes unsettled orphans.
+ * Returns an error message when a settled receivable would be removed.
+ */
+export async function syncReimbursementSplitGroup({
+	userId,
+	expenseId,
+	splitGroupId: existingSplitGroupId,
+	data,
+	period,
+	purchaseDate,
+	dueDate,
+	boletoPaymentDate,
+	totalCents,
+	shouldNullifySettled,
+	receivableCategoryId,
+	receivableAccountId,
+	existingSeriesId,
+	existingInstallmentCount,
+	existingCurrentInstallment,
+	existingRecurrenceCount,
+}: SyncReimbursementParams): Promise<{ error?: string }> {
+	const payerId = data.payerId;
+	if (!payerId) {
+		return { error: "Selecione quem pagou o valor integral." };
+	}
+
+	const debtorShares = buildDebtorShares(data.splitShares);
+	if (debtorShares.length < 1) {
+		return { error: "Selecione pelo menos uma pessoa que deve reembolsar." };
+	}
+
+	const splitGroupId = existingSplitGroupId ?? randomUUID();
+	const settled = shouldNullifySettled ? null : (data.isSettled ?? false);
+	const installmentCount =
+		data.condition === "Parcelado"
+			? (data.installmentCount ?? existingInstallmentCount)
+			: null;
+	const currentInstallment =
+		data.condition === "Parcelado" ? existingCurrentInstallment : null;
+	const recurrenceCount =
+		data.condition === "Recorrente"
+			? (data.recurrenceCount ?? existingRecurrenceCount)
+			: null;
+
+	const resolvedReceivableAccountId =
+		receivableAccountId ??
+		(await resolveReceivableAccountId({
+			userId,
+			accountId: data.accountId,
+			cardId: data.cardId,
+		}));
+
+	const expensePayload = {
+		name: data.name,
+		purchaseDate,
+		period,
+		transactionType: data.transactionType,
+		amount: centsToDecimalString(totalCents * -1),
+		condition: data.condition,
+		paymentMethod: data.paymentMethod,
+		note: data.note ?? null,
+		accountId: data.accountId ?? null,
+		cardId: data.cardId ?? null,
+		categoryId: data.categoryId ?? null,
+		payerId,
+		isSettled: settled,
+		dueDate,
+		boletoPaymentDate:
+			data.paymentMethod === "Boleto" && settled ? boletoPaymentDate : null,
+		installmentCount,
+		currentInstallment,
+		recurrenceCount,
+		isDivided: true,
+		splitMode: SPLIT_MODES.REIMBURSEMENT,
+		reimbursementDebtorId: null,
+		splitGroupId,
+	};
+
+	const receivableShared = {
+		name: data.name,
+		purchaseDate,
+		period,
+		transactionType: "Receita" as const,
+		condition: data.condition,
+		paymentMethod: REIMBURSEMENT_PAYMENT_METHOD,
+		note: data.note ?? null,
+		accountId: resolvedReceivableAccountId,
+		cardId: null as string | null,
+		categoryId: receivableCategoryId,
+		payerId,
+		dueDate,
+		boletoPaymentDate: null as Date | null,
+		installmentCount,
+		currentInstallment,
+		recurrenceCount,
+		isDivided: true,
+		splitMode: SPLIT_MODES.REIMBURSEMENT,
+		splitGroupId,
+		seriesId: existingSeriesId,
+	};
+
+	const existingReceivables = existingSplitGroupId
+		? await db.query.transactions.findMany({
+				columns: {
+					id: true,
+					reimbursementDebtorId: true,
+					isSettled: true,
+					amount: true,
+				},
+				where: and(
+					eq(transactions.userId, userId),
+					eq(transactions.splitGroupId, existingSplitGroupId),
+					ne(transactions.id, expenseId),
+				),
+			})
+		: [];
+
+	const desiredDebtorIds = new Set(debtorShares.map((s) => s.payerId));
+	const byDebtor = new Map(
+		existingReceivables
+			.filter((r) => r.reimbursementDebtorId)
+			.map((r) => [r.reimbursementDebtorId as string, r]),
+	);
+
+	for (const existing of existingReceivables) {
+		const debtorId = existing.reimbursementDebtorId;
+		if (debtorId && !desiredDebtorIds.has(debtorId)) {
+			if (existing.isSettled) {
+				return {
+					error:
+						"Não é possível remover uma pessoa cujo valor a receber já foi marcado como recebido.",
+				};
+			}
+		}
+	}
+
+	await db.transaction(async (tx) => {
+		await tx
+			.update(transactions)
+			.set(expensePayload)
+			.where(
+				and(eq(transactions.id, expenseId), eq(transactions.userId, userId)),
+			);
+
+		for (const share of debtorShares) {
+			if (!share.payerId || share.amountCents <= 0) continue;
+
+			const existing = byDebtor.get(share.payerId);
+			if (existing) {
+				await tx
+					.update(transactions)
+					.set({
+						...receivableShared,
+						amount: centsToDecimalString(share.amountCents),
+						reimbursementDebtorId: share.payerId,
+						// Keep settlement status on existing receivables
+						isSettled: existing.isSettled ?? false,
+					})
+					.where(
+						and(
+							eq(transactions.id, existing.id),
+							eq(transactions.userId, userId),
+						),
+					);
+			} else {
+				await tx.insert(transactions).values({
+					...receivableShared,
+					amount: centsToDecimalString(share.amountCents),
+					reimbursementDebtorId: share.payerId,
+					isSettled: false,
+					userId,
+				});
+			}
+		}
+
+		for (const existing of existingReceivables) {
+			const debtorId = existing.reimbursementDebtorId;
+			if (!debtorId || desiredDebtorIds.has(debtorId)) continue;
+			if (existing.isSettled) continue;
+
+			await tx
+				.delete(transactions)
+				.where(
+					and(
+						eq(transactions.id, existing.id),
+						eq(transactions.userId, userId),
+					),
+				);
+		}
+	});
+
+	return {};
+}
+
+type SeriesExpenseCycle = {
+	id: string;
+	period: string;
+	purchaseDate: Date;
+	dueDate: Date | null;
+	splitGroupId: string | null;
+	installmentCount: number | null;
+	currentInstallment: number | null;
+	recurrenceCount: number | null;
+	seriesId: string | null;
+};
+
+async function fetchSeriesExpenseCycles({
+	userId,
+	seriesId,
+	anchorPeriod,
+	scope,
+}: {
+	userId: string;
+	seriesId: string;
+	anchorPeriod: string;
+	scope: (typeof SERIES_EDIT_SCOPES)[number];
+}): Promise<SeriesExpenseCycle[]> {
+	const scopeFilter =
+		scope === "current" || scope === "period"
+			? eq(transactions.period, anchorPeriod)
+			: scope === "future"
+				? sql`${transactions.period} >= ${anchorPeriod}`
+				: undefined;
+
+	const rows = await db.query.transactions.findMany({
+		columns: {
+			id: true,
+			period: true,
+			purchaseDate: true,
+			dueDate: true,
+			splitGroupId: true,
+			installmentCount: true,
+			currentInstallment: true,
+			recurrenceCount: true,
+			seriesId: true,
+		},
+		where: and(
+			eq(transactions.userId, userId),
+			eq(transactions.seriesId, seriesId),
+			eq(transactions.transactionType, "Despesa"),
+			isNull(transactions.reimbursementDebtorId),
+			scopeFilter,
+		),
+		orderBy: [asc(transactions.period)],
+	});
+
+	return rows.map((row) => ({
+		id: row.id,
+		period: row.period,
+		purchaseDate: row.purchaseDate,
+		dueDate: row.dueDate,
+		splitGroupId: row.splitGroupId,
+		installmentCount: row.installmentCount,
+		currentInstallment: row.currentInstallment,
+		recurrenceCount: row.recurrenceCount,
+		seriesId: row.seriesId,
+	}));
+}
+
+/**
+ * Applies reimbursement split sync across expense cycles of a series.
+ * Each cycle keeps its own purchaseDate/period; shared fields and receivables
+ * are created/updated per cycle.
+ */
+export async function syncReimbursementSeries({
+	userId,
+	seriesId,
+	anchorExpenseId,
+	anchorPeriod,
+	scope,
+	data,
+	boletoPaymentDate,
+	totalCents,
+	shouldNullifySettled,
+	receivableCategoryId,
+	receivableAccountId,
+}: {
+	userId: string;
+	seriesId: string;
+	anchorExpenseId: string;
+	anchorPeriod: string;
+	scope: (typeof SERIES_EDIT_SCOPES)[number];
+	data: BaseInput;
+	boletoPaymentDate: Date | null;
+	totalCents: number;
+	shouldNullifySettled: boolean;
+	receivableCategoryId: string;
+	receivableAccountId?: string | null;
+}): Promise<{ error?: string; updatedCount: number }> {
+	const cycles = await fetchSeriesExpenseCycles({
+		userId,
+		seriesId,
+		anchorPeriod,
+		scope,
+	});
+
+	if (cycles.length === 0) {
+		return { error: "Nenhum lançamento da série encontrado.", updatedCount: 0 };
+	}
+
+	// Ensure the edited expense is included even if filters missed it
+	if (!cycles.some((cycle) => cycle.id === anchorExpenseId)) {
+		const anchor = await db.query.transactions.findFirst({
+			columns: {
+				id: true,
+				period: true,
+				purchaseDate: true,
+				dueDate: true,
+				splitGroupId: true,
+				installmentCount: true,
+				currentInstallment: true,
+				recurrenceCount: true,
+				seriesId: true,
+			},
+			where: and(
+				eq(transactions.id, anchorExpenseId),
+				eq(transactions.userId, userId),
+			),
+		});
+		if (anchor) {
+			cycles.unshift({
+				id: anchor.id,
+				period: anchor.period,
+				purchaseDate: anchor.purchaseDate,
+				dueDate: anchor.dueDate,
+				splitGroupId: anchor.splitGroupId,
+				installmentCount: anchor.installmentCount,
+				currentInstallment: anchor.currentInstallment,
+				recurrenceCount: anchor.recurrenceCount,
+				seriesId: anchor.seriesId,
+			});
+		}
+	}
+
+	for (const cycle of cycles) {
+		const isAnchor = cycle.id === anchorExpenseId;
+		const cycleData: BaseInput = {
+			...data,
+			// Keep each cycle on its own calendar month unless editing the anchor
+			purchaseDate: isAnchor
+				? data.purchaseDate
+				: cycle.purchaseDate.toISOString().slice(0, 10),
+			period: isAnchor ? data.period : cycle.period,
+			dueDate: isAnchor
+				? data.dueDate
+				: cycle.dueDate
+					? cycle.dueDate.toISOString().slice(0, 10)
+					: undefined,
+			installmentCount: cycle.installmentCount ?? data.installmentCount,
+			recurrenceCount: cycle.recurrenceCount ?? data.recurrenceCount,
+		};
+
+		const result = await syncReimbursementSplitGroup({
+			userId,
+			expenseId: cycle.id,
+			splitGroupId: cycle.splitGroupId,
+			data: cycleData,
+			period: isAnchor ? (data.period ?? cycle.period) : cycle.period,
+			purchaseDate: isAnchor
+				? parseLocalDateString(data.purchaseDate)
+				: cycle.purchaseDate,
+			dueDate: isAnchor
+				? data.dueDate
+					? parseLocalDateString(data.dueDate)
+					: null
+				: cycle.dueDate,
+			boletoPaymentDate: isAnchor ? boletoPaymentDate : null,
+			totalCents,
+			shouldNullifySettled,
+			receivableCategoryId,
+			receivableAccountId,
+			existingSeriesId: seriesId,
+			existingInstallmentCount: cycle.installmentCount,
+			existingCurrentInstallment: cycle.currentInstallment,
+			existingRecurrenceCount: cycle.recurrenceCount,
+		});
+
+		if (result.error) {
+			return { error: result.error, updatedCount: 0 };
+		}
+	}
+
+	return { updatedCount: cycles.length };
+}
+
+/**
+ * Dissolves reimbursement splits across expense cycles of a series.
+ */
+export async function dissolveReimbursementSeries({
+	userId,
+	seriesId,
+	anchorExpenseId,
+	anchorPeriod,
+	scope,
+}: {
+	userId: string;
+	seriesId: string;
+	anchorExpenseId: string;
+	anchorPeriod: string;
+	scope: (typeof SERIES_EDIT_SCOPES)[number];
+}): Promise<{ error?: string; updatedCount: number }> {
+	const cycles = await fetchSeriesExpenseCycles({
+		userId,
+		seriesId,
+		anchorPeriod,
+		scope,
+	});
+
+	if (cycles.length === 0) {
+		return { error: "Nenhum lançamento da série encontrado.", updatedCount: 0 };
+	}
+
+	if (!cycles.some((cycle) => cycle.id === anchorExpenseId)) {
+		const anchor = await db.query.transactions.findFirst({
+			columns: {
+				id: true,
+				period: true,
+				purchaseDate: true,
+				dueDate: true,
+				splitGroupId: true,
+				installmentCount: true,
+				currentInstallment: true,
+				recurrenceCount: true,
+				seriesId: true,
+			},
+			where: and(
+				eq(transactions.id, anchorExpenseId),
+				eq(transactions.userId, userId),
+			),
+		});
+		if (anchor) {
+			cycles.unshift({
+				id: anchor.id,
+				period: anchor.period,
+				purchaseDate: anchor.purchaseDate,
+				dueDate: anchor.dueDate,
+				splitGroupId: anchor.splitGroupId,
+				installmentCount: anchor.installmentCount,
+				currentInstallment: anchor.currentInstallment,
+				recurrenceCount: anchor.recurrenceCount,
+				seriesId: anchor.seriesId,
+			});
+		}
+	}
+
+	let updatedCount = 0;
+	for (const cycle of cycles) {
+		if (!cycle.splitGroupId) {
+			await db
+				.update(transactions)
+				.set({
+					isDivided: false,
+					splitMode: null,
+					splitGroupId: null,
+					reimbursementDebtorId: null,
+				})
+				.where(
+					and(eq(transactions.id, cycle.id), eq(transactions.userId, userId)),
+				);
+			updatedCount += 1;
+			continue;
+		}
+
+		const result = await dissolveReimbursementSplitGroup({
+			userId,
+			expenseId: cycle.id,
+			splitGroupId: cycle.splitGroupId,
+		});
+		if (result.error) {
+			return { error: result.error, updatedCount };
+		}
+		updatedCount += 1;
+	}
+
+	return { updatedCount };
+}
+
+/**
+ * Dissolves a reimbursement group: keeps the expense as a normal transaction
+ * and deletes unsettled receivables. Fails if any receivable is already settled.
+ */
+export async function dissolveReimbursementSplitGroup({
+	userId,
+	expenseId,
+	splitGroupId,
+}: {
+	userId: string;
+	expenseId: string;
+	splitGroupId: string;
+}): Promise<{ error?: string }> {
+	const siblings = await db.query.transactions.findMany({
+		columns: {
+			id: true,
+			reimbursementDebtorId: true,
+			isSettled: true,
+		},
+		where: and(
+			eq(transactions.userId, userId),
+			eq(transactions.splitGroupId, splitGroupId),
+			ne(transactions.id, expenseId),
+		),
+	});
+
+	const settledReceivable = siblings.find(
+		(s) => s.reimbursementDebtorId && s.isSettled,
+	);
+	if (settledReceivable) {
+		return {
+			error:
+				"Não é possível remover a divisão: há valores a receber já marcados como recebidos.",
+		};
+	}
+
+	await db.transaction(async (tx) => {
+		if (siblings.length > 0) {
+			await tx
+				.delete(transactions)
+				.where(
+					and(
+						eq(transactions.userId, userId),
+						eq(transactions.splitGroupId, splitGroupId),
+						ne(transactions.id, expenseId),
+					),
+				);
+		}
+
+		await tx
+			.update(transactions)
+			.set({
+				isDivided: false,
+				splitMode: null,
+				splitGroupId: null,
+				reimbursementDebtorId: null,
+			})
+			.where(
+				and(eq(transactions.id, expenseId), eq(transactions.userId, userId)),
+			);
+	});
+
+	return {};
+}
+
+type SyncCostShareParams = {
+	userId: string;
+	anchorId: string;
+	splitGroupId: string | null;
+	data: BaseInput;
+	period: string;
+	purchaseDate: Date;
+	dueDate: Date | null;
+	boletoPaymentDate: Date | null;
+	amountSign: 1 | -1;
+	shouldNullifySettled: boolean;
+	existingSeriesId: string | null;
+	existingInstallmentCount: number | null;
+	existingCurrentInstallment: number | null;
+	existingRecurrenceCount: number | null;
+};
+
+/**
+ * Syncs a cost_share split group: updates all member amounts/payers and
+ * shared metadata. Creates new shares and deletes removed ones.
+ */
+export async function syncCostShareSplitGroup({
+	userId,
+	anchorId,
+	splitGroupId: existingSplitGroupId,
+	data,
+	period,
+	purchaseDate,
+	dueDate,
+	boletoPaymentDate,
+	amountSign,
+	shouldNullifySettled,
+	existingSeriesId,
+	existingInstallmentCount,
+	existingCurrentInstallment,
+	existingRecurrenceCount,
+}: SyncCostShareParams): Promise<{ error?: string }> {
+	const totalCents = Math.round(Math.abs(data.amount) * 100);
+	const shares = buildShares({
+		totalCents,
+		payerId: data.payerId ?? null,
+		isSplit: true,
+		secondaryPayerId: data.secondaryPayerId,
+		splitShares: data.splitShares,
+		primarySplitAmountCents: data.primarySplitAmount
+			? Math.round(data.primarySplitAmount * 100)
+			: undefined,
+		secondarySplitAmountCents: data.secondarySplitAmount
+			? Math.round(data.secondarySplitAmount * 100)
+			: undefined,
+	});
+
+	if (shares.length < 2) {
+		return {
+			error: "Selecione pelo menos uma pessoa para dividir o lançamento.",
+		};
+	}
+
+	const splitGroupId = existingSplitGroupId ?? randomUUID();
+	const settled = shouldNullifySettled ? null : (data.isSettled ?? false);
+	const installmentCount =
+		data.condition === "Parcelado"
+			? (data.installmentCount ?? existingInstallmentCount)
+			: null;
+	const currentInstallment =
+		data.condition === "Parcelado" ? existingCurrentInstallment : null;
+	const recurrenceCount =
+		data.condition === "Recorrente"
+			? (data.recurrenceCount ?? existingRecurrenceCount)
+			: null;
+
+	const sharedPayload = {
+		name: data.name,
+		purchaseDate,
+		period,
+		transactionType: data.transactionType,
+		condition: data.condition,
+		paymentMethod: data.paymentMethod,
+		note: data.note ?? null,
+		accountId: data.accountId ?? null,
+		cardId: data.cardId ?? null,
+		categoryId: data.categoryId ?? null,
+		dueDate,
+		boletoPaymentDate:
+			data.paymentMethod === "Boleto" && settled ? boletoPaymentDate : null,
+		isSettled: settled,
+		installmentCount,
+		currentInstallment,
+		recurrenceCount,
+		isDivided: true,
+		splitMode: SPLIT_MODES.COST_SHARE,
+		reimbursementDebtorId: null,
+		splitGroupId,
+		seriesId: existingSeriesId,
+	};
+
+	const existingMembers = existingSplitGroupId
+		? await db.query.transactions.findMany({
+				columns: {
+					id: true,
+					payerId: true,
+					isSettled: true,
+				},
+				where: and(
+					eq(transactions.userId, userId),
+					eq(transactions.splitGroupId, existingSplitGroupId),
+				),
+			})
+		: [{ id: anchorId, payerId: data.payerId ?? null, isSettled: settled }];
+
+	const byPayer = new Map(
+		existingMembers
+			.filter((m) => m.payerId)
+			.map((m) => [m.payerId as string, m]),
+	);
+	const desiredPayerIds = new Set(
+		shares.map((s) => s.payerId).filter((id): id is string => Boolean(id)),
+	);
+
+	for (const member of existingMembers) {
+		if (member.payerId && !desiredPayerIds.has(member.payerId)) {
+			if (member.isSettled) {
+				return {
+					error:
+						"Não é possível remover uma pessoa cujo lançamento já está pago.",
+				};
+			}
+		}
+	}
+
+	await db.transaction(async (tx) => {
+		const matchedIds = new Set<string>();
+
+		for (const share of shares) {
+			if (!share.payerId || share.amountCents <= 0) continue;
+
+			const existing = byPayer.get(share.payerId);
+			if (existing && !matchedIds.has(existing.id)) {
+				matchedIds.add(existing.id);
+				await tx
+					.update(transactions)
+					.set({
+						...sharedPayload,
+						amount: centsToDecimalString(share.amountCents * amountSign),
+						payerId: share.payerId,
+						isSettled: existing.isSettled ?? settled,
+					})
+					.where(
+						and(
+							eq(transactions.id, existing.id),
+							eq(transactions.userId, userId),
+						),
+					);
+			} else {
+				await tx.insert(transactions).values({
+					...sharedPayload,
+					amount: centsToDecimalString(share.amountCents * amountSign),
+					payerId: share.payerId,
+					isSettled: settled,
+					userId,
+				});
+			}
+		}
+
+		for (const member of existingMembers) {
+			if (matchedIds.has(member.id)) continue;
+			if (member.isSettled) continue;
+
+			await tx
+				.delete(transactions)
+				.where(
+					and(eq(transactions.id, member.id), eq(transactions.userId, userId)),
+				);
+		}
+	});
+
+	return {};
+}
 
 export const formatPaidInvoicePeriods = (periods: string[]) =>
 	periods

@@ -20,7 +20,10 @@ import {
 	detachAttachmentBulkAction,
 	getPresignedUploadUrlAction,
 } from "@/features/transactions/actions/attachments";
+import { fetchSplitGroupContextAction } from "@/features/transactions/actions/fetch-split-group";
+import { SPLIT_MODES } from "@/features/transactions/lib/constants";
 import { detectInstallmentFromName } from "@/features/transactions/lib/installment-detection";
+import type { SplitGroupContext } from "@/features/transactions/lib/split-group";
 import { ConfirmActionDialog } from "@/shared/components/confirm-action-dialog";
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -169,9 +172,16 @@ export function TransactionsPage({
 		isSettled: boolean | null;
 		dueDate: string | null;
 		boletoPaymentDate: string | null;
+		isSplit?: boolean;
+		splitMode?: string;
+		splitShares?: Array<{ payerId: string; amount: number }>;
+		primarySplitAmount?: number;
+		secondarySplitAmount?: number;
 		pendingDetachIds: string[];
 		pendingUploadFiles: File[];
 	} | null>(null);
+	const [editSplitContext, setEditSplitContext] =
+		useState<SplitGroupContext | null>(null);
 	const [pendingEditData, setPendingEditData] = useState<{
 		id: string;
 		purchaseDate: string;
@@ -186,6 +196,14 @@ export function TransactionsPage({
 		dueDate: string | null;
 		boletoPaymentDate: string | null;
 		isSettled: boolean | null;
+		transactionType?: string;
+		condition?: string;
+		paymentMethod?: string;
+		isSplit?: boolean;
+		splitMode?: string;
+		splitShares?: Array<{ payerId: string; amount: number }>;
+		primarySplitAmount?: number;
+		secondarySplitAmount?: number;
 		pendingDetachIds: string[];
 		pendingUploadFiles: File[];
 		transaction: TransactionItem;
@@ -226,6 +244,7 @@ export function TransactionsPage({
 			return;
 		}
 
+		const isReceivable = Boolean(item.reimbursementDebtorId);
 		const supportedMethods = [
 			"Pix",
 			"Boleto",
@@ -234,7 +253,8 @@ export function TransactionsPage({
 			"Pré-Pago | VR/VA",
 			"Transferência bancária",
 		];
-		if (!supportedMethods.includes(item.paymentMethod)) {
+
+		if (!isReceivable && !supportedMethods.includes(item.paymentMethod)) {
 			return;
 		}
 
@@ -251,11 +271,15 @@ export function TransactionsPage({
 				throw new Error(result.error);
 			}
 
-			toast.success(
-				nextValue
+			const successMessage = isReceivable
+				? nextValue
+					? `"${item.name}" marcado como recebido`
+					: `"${item.name}" marcado como pendente`
+				: nextValue
 					? `"${item.name}" marcado como pago`
-					: `"${item.name}" marcado como não pago`,
-			);
+					: `"${item.name}" marcado como não pago`;
+
+			toast.success(successMessage);
 		} catch (error) {
 			const message =
 				error instanceof Error
@@ -272,8 +296,14 @@ export function TransactionsPage({
 			return;
 		}
 
+		const isReimbursementExpense =
+			transactionToDelete.splitMode === SPLIT_MODES.REIMBURSEMENT &&
+			Boolean(transactionToDelete.splitGroupId) &&
+			!transactionToDelete.reimbursementDebtorId;
+
 		const result = await deleteTransactionAction({
 			id: transactionToDelete.id,
+			scope: isReimbursementExpense ? "group" : "current",
 		});
 
 		if (!result.success) {
@@ -319,6 +349,14 @@ export function TransactionsPage({
 		dueDate: string | null;
 		boletoPaymentDate: string | null;
 		isSettled: boolean | null;
+		transactionType?: string;
+		condition?: string;
+		paymentMethod?: string;
+		isSplit?: boolean;
+		splitMode?: string;
+		splitShares?: Array<{ payerId: string; amount: number }>;
+		primarySplitAmount?: number;
+		secondarySplitAmount?: number;
 		pendingDetachIds: string[];
 		pendingUploadFiles: File[];
 	}) => {
@@ -339,22 +377,65 @@ export function TransactionsPage({
 			return;
 		}
 
-		const result = await updateTransactionBulkAction({
-			id: pendingEditData.id,
-			scope,
-			purchaseDate: pendingEditData.purchaseDate,
-			period: pendingEditData.period,
-			name: pendingEditData.name,
-			categoryId: pendingEditData.categoryId,
-			note: pendingEditData.note,
-			payerId: pendingEditData.payerId,
-			accountId: pendingEditData.accountId,
-			cardId: pendingEditData.cardId,
-			amount: pendingEditData.amount,
-			dueDate: pendingEditData.dueDate,
-			boletoPaymentDate: pendingEditData.boletoPaymentDate,
-			isSettled: pendingEditData.isSettled ?? undefined,
-		});
+		const isConfiguringSplit =
+			pendingEditData.isSplit !== undefined ||
+			Boolean(pendingEditData.splitShares?.length) ||
+			(pendingEditData.transaction.isDivided &&
+				pendingEditData.isSplit === false);
+
+		const result = isConfiguringSplit
+			? await updateTransactionAction({
+					id: pendingEditData.id,
+					purchaseDate: pendingEditData.purchaseDate,
+					period: pendingEditData.period,
+					name: pendingEditData.name,
+					transactionType: (pendingEditData.transactionType ??
+						pendingEditData.transaction.transactionType) as Parameters<
+						typeof updateTransactionAction
+					>[0]["transactionType"],
+					amount: pendingEditData.amount,
+					condition: (pendingEditData.condition ??
+						pendingEditData.transaction.condition) as Parameters<
+						typeof updateTransactionAction
+					>[0]["condition"],
+					paymentMethod: (pendingEditData.paymentMethod ??
+						pendingEditData.transaction.paymentMethod) as Parameters<
+						typeof updateTransactionAction
+					>[0]["paymentMethod"],
+					payerId: pendingEditData.payerId ?? null,
+					accountId: pendingEditData.accountId ?? null,
+					cardId: pendingEditData.cardId ?? null,
+					categoryId: pendingEditData.categoryId ?? null,
+					note: pendingEditData.note,
+					isSettled: pendingEditData.isSettled,
+					dueDate: pendingEditData.dueDate ?? undefined,
+					boletoPaymentDate: pendingEditData.boletoPaymentDate ?? undefined,
+					isSplit: pendingEditData.isSplit ?? false,
+					splitMode: pendingEditData.splitMode as
+						| "cost_share"
+						| "reimbursement"
+						| undefined,
+					splitShares: pendingEditData.splitShares,
+					primarySplitAmount: pendingEditData.primarySplitAmount,
+					secondarySplitAmount: pendingEditData.secondarySplitAmount,
+					seriesScope: scope,
+				})
+			: await updateTransactionBulkAction({
+					id: pendingEditData.id,
+					scope,
+					purchaseDate: pendingEditData.purchaseDate,
+					period: pendingEditData.period,
+					name: pendingEditData.name,
+					categoryId: pendingEditData.categoryId,
+					note: pendingEditData.note,
+					payerId: pendingEditData.payerId,
+					accountId: pendingEditData.accountId,
+					cardId: pendingEditData.cardId,
+					amount: pendingEditData.amount,
+					dueDate: pendingEditData.dueDate,
+					boletoPaymentDate: pendingEditData.boletoPaymentDate,
+					isSettled: pendingEditData.isSettled ?? undefined,
+				});
 
 		if (!result.success) {
 			toast.error(result.error);
@@ -480,7 +561,14 @@ export function TransactionsPage({
 			isSettled: pendingSplitEditData.isSettled,
 			dueDate: pendingSplitEditData.dueDate ?? undefined,
 			boletoPaymentDate: pendingSplitEditData.boletoPaymentDate ?? undefined,
-			isSplit: false,
+			isSplit: pendingSplitEditData.isSplit ?? false,
+			splitMode: pendingSplitEditData.splitMode as
+				| "cost_share"
+				| "reimbursement"
+				| undefined,
+			splitShares: pendingSplitEditData.splitShares,
+			primarySplitAmount: pendingSplitEditData.primarySplitAmount,
+			secondarySplitAmount: pendingSplitEditData.secondarySplitAmount,
 		};
 
 		const action =
@@ -529,8 +617,22 @@ export function TransactionsPage({
 		setPendingSplitEditData(null);
 	};
 
-	const handleEdit = (item: TransactionItem) => {
+	const handleEdit = async (item: TransactionItem) => {
 		setSelectedTransaction(item);
+		setEditSplitContext(null);
+
+		if (item.splitGroupId) {
+			try {
+				const context = await fetchSplitGroupContextAction(
+					item.splitGroupId,
+					item.id,
+				);
+				setEditSplitContext(context);
+			} catch {
+				toast.error("Não foi possível carregar a divisão deste lançamento.");
+			}
+		}
+
 		setEditOpen(true);
 	};
 
@@ -828,7 +930,12 @@ export function TransactionsPage({
 			<TransactionDialog
 				mode="update"
 				open={editOpen && !!selectedTransaction}
-				onOpenChange={setEditOpen}
+				onOpenChange={(open) => {
+					setEditOpen(open);
+					if (!open) {
+						setEditSplitContext(null);
+					}
+				}}
 				payerOptions={payerOptions}
 				splitPayerOptions={splitPayerOptions}
 				defaultPayerId={defaultPayerId}
@@ -837,6 +944,7 @@ export function TransactionsPage({
 				categoryOptions={categoryOptions}
 				estabelecimentos={estabelecimentos}
 				transaction={selectedTransaction ?? undefined}
+				splitContext={editSplitContext}
 				defaultPeriod={selectedPeriod}
 				defaultAccountId={defaultAccountId}
 				onBulkEditRequest={handleBulkEditRequest}
@@ -873,10 +981,20 @@ export function TransactionsPage({
 				onOpenChange={setDeleteOpen}
 				title={
 					transactionToDelete
-						? `Remover lançamento "${transactionToDelete.name}"?`
+						? transactionToDelete.splitMode === SPLIT_MODES.REIMBURSEMENT &&
+							transactionToDelete.splitGroupId &&
+							!transactionToDelete.reimbursementDebtorId
+							? `Remover divisão "${transactionToDelete.name}"?`
+							: `Remover lançamento "${transactionToDelete.name}"?`
 						: "Remover lançamento?"
 				}
-				description="Essa ação é irreversível e removerá o lançamento de forma permanente."
+				description={
+					transactionToDelete?.splitMode === SPLIT_MODES.REIMBURSEMENT &&
+					transactionToDelete.splitGroupId &&
+					!transactionToDelete.reimbursementDebtorId
+						? "Essa ação remove a despesa e todos os valores a receber vinculados a esta divisão."
+						: "Essa ação é irreversível e removerá o lançamento de forma permanente."
+				}
 				confirmLabel="Remover"
 				pendingLabel="Removendo..."
 				confirmVariant="destructive"

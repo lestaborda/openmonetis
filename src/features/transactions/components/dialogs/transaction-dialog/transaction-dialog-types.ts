@@ -1,4 +1,5 @@
 import type { TransactionFormState } from "@/features/transactions/lib/form-helpers";
+import type { SplitGroupContext } from "@/features/transactions/lib/split-group";
 import type { SelectOption, TransactionItem } from "../../types";
 
 export type FormState = TransactionFormState;
@@ -16,6 +17,8 @@ export interface TransactionDialogProps {
 	categoryOptions: SelectOption[];
 	estabelecimentos: string[];
 	transaction?: TransactionItem;
+	/** Preloaded split group context for edit mode */
+	splitContext?: SplitGroupContext | null;
 	defaultPeriod?: string;
 	defaultAccountId?: string | null;
 	defaultCardId?: string | null;
@@ -47,6 +50,14 @@ export interface TransactionDialogProps {
 		dueDate: string | null;
 		boletoPaymentDate: string | null;
 		isSettled: boolean | null;
+		transactionType?: string;
+		condition?: string;
+		paymentMethod?: string;
+		isSplit?: boolean;
+		splitMode?: string;
+		splitShares?: Array<{ payerId: string; amount: number }>;
+		primarySplitAmount?: number;
+		secondarySplitAmount?: number;
 		pendingDetachIds: string[];
 		pendingUploadFiles: File[];
 	}) => void;
@@ -67,6 +78,11 @@ export interface TransactionDialogProps {
 		isSettled: boolean | null;
 		dueDate: string | null;
 		boletoPaymentDate: string | null;
+		isSplit: boolean;
+		splitMode?: string;
+		splitShares?: Array<{ payerId: string; amount: number }>;
+		primarySplitAmount?: number;
+		secondarySplitAmount?: number;
 		pendingDetachIds: string[];
 		pendingUploadFiles: File[];
 	}) => void;

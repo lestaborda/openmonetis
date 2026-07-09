@@ -20,6 +20,7 @@ import {
 	applyFieldDependencies,
 	buildTransactionInitialState,
 	deriveCreditCardPeriod,
+	resolveEditTransactionAnchor,
 } from "@/features/transactions/lib/form-helpers";
 import { useAppPreferences } from "@/shared/components/providers/app-preferences-provider";
 import { Button } from "@/shared/components/ui/button";
@@ -67,6 +68,7 @@ export function TransactionDialog({
 	categoryOptions,
 	estabelecimentos,
 	transaction,
+	splitContext,
 	defaultPeriod,
 	defaultAccountId,
 	defaultCardId,
@@ -100,6 +102,7 @@ export function TransactionDialog({
 			defaultAmount,
 			defaultTransactionType,
 			isImporting,
+			splitContext,
 		}),
 	);
 	const [isPending, startTransition] = useTransition();
@@ -126,6 +129,7 @@ export function TransactionDialog({
 					defaultAmount,
 					defaultTransactionType,
 					isImporting,
+					splitContext,
 				},
 			);
 
@@ -168,6 +172,7 @@ export function TransactionDialog({
 		isImporting,
 		cardOptions,
 		mode,
+		splitContext,
 	]);
 
 	const categoryGroups = useMemo(() => {
@@ -445,17 +450,114 @@ export function TransactionDialog({
 			}
 
 			const hasSeriesId = Boolean(transaction?.seriesId);
+			const editAnchor = resolveEditTransactionAnchor(
+				transaction,
+				splitContext,
+			);
+			const editId = editAnchor?.id ?? transaction?.id ?? "";
 			const hasSplitPair = Boolean(
 				transaction?.isDivided &&
 					transaction?.splitGroupId &&
 					!transaction?.seriesId,
 			);
+			const isConfiguringSplit =
+				formState.isSplit ||
+				(Boolean(transaction?.isDivided) && !formState.isSplit);
+
+			// Série + divisão: pedir escopo (este / futuros / todos) antes de sync
+			if (isConfiguringSplit && hasSeriesId && onBulkEditRequest) {
+				onBulkEditRequest({
+					id: editId,
+					purchaseDate: formState.purchaseDate,
+					period: formState.period,
+					name: formState.name.trim(),
+					categoryId: formState.categoryId,
+					note: formState.note.trim() || "",
+					payerId: formState.payerId,
+					accountId: formState.accountId,
+					cardId: formState.cardId,
+					amount: sanitizedAmount,
+					dueDate:
+						formState.paymentMethod === "Boleto"
+							? formState.dueDate || null
+							: null,
+					boletoPaymentDate:
+						mode === "update" && formState.paymentMethod === "Boleto"
+							? formState.boletoPaymentDate || null
+							: null,
+					isSettled:
+						formState.paymentMethod === "Cartão de crédito"
+							? null
+							: Boolean(formState.isSettled),
+					transactionType: formState.transactionType,
+					condition: formState.condition,
+					paymentMethod: formState.paymentMethod,
+					isSplit: formState.isSplit,
+					splitMode: formState.isSplit ? formState.splitMode : undefined,
+					splitShares: normalizedSplitShares,
+					primarySplitAmount: formState.isSplit
+						? Number.parseFloat(formState.primarySplitAmount) || undefined
+						: undefined,
+					secondarySplitAmount: formState.isSplit
+						? Number.parseFloat(formState.secondarySplitAmount) || undefined
+						: undefined,
+					pendingDetachIds,
+					pendingUploadFiles,
+				});
+				return;
+			}
+
+			// Divisão à vista (criar/atualizar/remover shares): sync direto
+			if (isConfiguringSplit) {
+				const updatePayload: UpdateTransactionInput = {
+					id: editId,
+					...payload,
+				};
+
+				const result = await updateTransactionAction(updatePayload);
+
+				if (result.success) {
+					for (const attachmentId of pendingDetachIds) {
+						await detachTransactionAttachmentAction({
+							attachmentId,
+							transactionId: editId,
+						});
+					}
+					for (const file of pendingUploadFiles) {
+						const presign = await getPresignedUploadUrlAction({
+							fileName: file.name,
+							mimeType: file.type,
+							fileSize: file.size,
+							transactionId: editId,
+						});
+						if (presign.success) {
+							await fetch(presign.presignedUrl, {
+								method: "PUT",
+								body: file,
+								headers: { "Content-Type": file.type },
+							});
+							await confirmAttachmentUploadAction({
+								uploadToken: presign.uploadToken,
+								scope: "current",
+							});
+						}
+					}
+					toast.success(result.message);
+					onSuccess?.();
+					setDialogOpen(false);
+					return;
+				}
+
+				setErrorMessage(result.error);
+				toast.error(result.error);
+				return;
+			}
 
 			if (hasSeriesId && onBulkEditRequest) {
 				// Para lançamentos em série, passa os arquivos para a página confirmar
 				// o upload após o escopo ser escolhido (sem upload antecipado ao S3)
 				onBulkEditRequest({
-					id: transaction?.id ?? "",
+					id: editId,
 					purchaseDate: formState.purchaseDate,
 					period: formState.period,
 					name: formState.name.trim(),
@@ -485,7 +587,7 @@ export function TransactionDialog({
 
 			if (hasSplitPair && onSplitEditRequest) {
 				onSplitEditRequest({
-					id: transaction?.id ?? "",
+					id: editId,
 					purchaseDate: formState.purchaseDate,
 					period: formState.period,
 					name: formState.name.trim(),
@@ -510,6 +612,15 @@ export function TransactionDialog({
 						mode === "update" && formState.paymentMethod === "Boleto"
 							? formState.boletoPaymentDate || null
 							: null,
+					isSplit: formState.isSplit,
+					splitMode: formState.isSplit ? formState.splitMode : undefined,
+					splitShares: normalizedSplitShares,
+					primarySplitAmount: formState.isSplit
+						? Number.parseFloat(formState.primarySplitAmount) || undefined
+						: undefined,
+					secondarySplitAmount: formState.isSplit
+						? Number.parseFloat(formState.secondarySplitAmount) || undefined
+						: undefined,
 					pendingDetachIds,
 					pendingUploadFiles,
 				});
@@ -518,7 +629,7 @@ export function TransactionDialog({
 
 			// Atualização normal para lançamentos únicos
 			const updatePayload: UpdateTransactionInput = {
-				id: transaction?.id ?? "",
+				id: editId,
 				...payload,
 			};
 
@@ -528,7 +639,7 @@ export function TransactionDialog({
 				for (const attachmentId of pendingDetachIds) {
 					await detachTransactionAttachmentAction({
 						attachmentId,
-						transactionId: transaction?.id ?? "",
+						transactionId: editId,
 					});
 				}
 				for (const file of pendingUploadFiles) {
@@ -536,7 +647,7 @@ export function TransactionDialog({
 						fileName: file.name,
 						mimeType: file.type,
 						fileSize: file.size,
-						transactionId: transaction?.id ?? "",
+						transactionId: editId,
 					});
 					if (presign.success) {
 						await fetch(presign.presignedUrl, {

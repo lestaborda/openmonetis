@@ -40,6 +40,9 @@ export type SplitMode = (typeof SPLIT_MODES)[keyof typeof SPLIT_MODES];
 
 export const RECEIVABLE_FILTER_VALUE = "a-receber";
 
+/** Forma de pagamento padrão das receitas pendentes do modo reembolso. */
+export const DEFAULT_RECEIVABLE_PAYMENT_METHOD = "Pix" as const;
+
 /** Meses criados ao salvar um lançamento recorrente sem seleção explícita. */
 export const DEFAULT_RECURRENCE_COUNT = 60;
 export const MAX_RECURRENCE_COUNT = 60;

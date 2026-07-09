@@ -72,7 +72,7 @@ function InlinePeriodPicker({
 	return (
 		<div className="-mt-1">
 			<span className="text-xs text-muted-foreground">Fatura de </span>
-			<Popover open={open} onOpenChange={setOpen}>
+			<Popover open={open} onOpenChange={setOpen} modal>
 				<PopoverTrigger asChild>
 					<button
 						type="button"
@@ -81,7 +81,12 @@ function InlinePeriodPicker({
 						{displayPeriod(period)}
 					</button>
 				</PopoverTrigger>
-				<PopoverContent className="w-auto p-0" align="start">
+				<PopoverContent
+					className="z-[100] w-auto p-0"
+					align="start"
+					onOpenAutoFocus={(event) => event.preventDefault()}
+					onCloseAutoFocus={(event) => event.preventDefault()}
+				>
 					<MonthPicker
 						selectedMonth={periodToDate(period)}
 						onMonthSelect={(date) => {

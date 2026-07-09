@@ -137,7 +137,7 @@ export function DatePicker({
 	};
 
 	return (
-		<div className={cn("relative flex gap-2", className)}>
+		<div className={cn("relative flex w-full gap-2", className)}>
 			<Input
 				id={id}
 				value={displayValue}
@@ -148,13 +148,13 @@ export function DatePicker({
 				required={required}
 				disabled={disabled}
 			/>
-			<Popover open={open} onOpenChange={setOpen}>
+			<Popover open={open} onOpenChange={setOpen} modal>
 				<PopoverTrigger asChild>
 					<Button
 						type="button"
 						variant="ghost"
 						disabled={disabled}
-						className="absolute top-1/2 right-2 size-6 -translate-y-1/2"
+						className="absolute top-1/2 right-2 z-10 size-6 -translate-y-1/2"
 						aria-label="Abrir calendário"
 					>
 						<RiCalendarLine className="size-3.5" />
@@ -162,10 +162,12 @@ export function DatePicker({
 					</Button>
 				</PopoverTrigger>
 				<PopoverContent
-					className="w-auto overflow-hidden p-0"
-					align="end"
-					alignOffset={-8}
-					sideOffset={10}
+					className="z-[100] w-auto overflow-hidden p-0"
+					align="start"
+					side="bottom"
+					sideOffset={4}
+					onOpenAutoFocus={(event) => event.preventDefault()}
+					onCloseAutoFocus={(event) => event.preventDefault()}
 				>
 					<Calendar
 						mode="single"

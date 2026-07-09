@@ -17,10 +17,12 @@ import type { AttachmentForPeriod } from "@/features/attachments/queries";
 import { fetchTransactionByIdAction } from "@/features/transactions/actions/fetch-by-id";
 import type { TransactionDialogOptions } from "@/features/transactions/actions/fetch-dialog-options";
 import { fetchTransactionDialogOptionsAction } from "@/features/transactions/actions/fetch-dialog-options";
+import { fetchSplitGroupContextAction } from "@/features/transactions/actions/fetch-split-group";
 import { TransactionDetailsDialog } from "@/features/transactions/components/dialogs/transaction-details-dialog";
 import { TransactionDialog } from "@/features/transactions/components/dialogs/transaction-dialog/transaction-dialog";
 import { PayerSelectContent } from "@/features/transactions/components/select-items";
 import type { TransactionItem } from "@/features/transactions/components/types";
+import type { SplitGroupContext } from "@/features/transactions/lib/split-group";
 import { EmptyState } from "@/shared/components/feedback/empty-state";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import {
@@ -107,6 +109,8 @@ export function AttachmentsPage({
 	const [editOpen, setEditOpen] = useState(false);
 	const [transactionToEdit, setTransactionToEdit] =
 		useState<TransactionItem | null>(null);
+	const [editSplitContext, setEditSplitContext] =
+		useState<SplitGroupContext | null>(null);
 	const [dialogOptions, setDialogOptions] =
 		useState<TransactionDialogOptions | null>(null);
 
@@ -172,9 +176,19 @@ export function AttachmentsPage({
 
 	function handleEdit(transaction: TransactionItem) {
 		setTransactionToEdit(transaction);
+		setEditSplitContext(null);
 		startTransition(async () => {
-			const options = await fetchTransactionDialogOptionsAction();
+			const [options, splitContext] = await Promise.all([
+				fetchTransactionDialogOptionsAction(),
+				transaction.splitGroupId
+					? fetchSplitGroupContextAction(
+							transaction.splitGroupId,
+							transaction.id,
+						)
+					: Promise.resolve(null),
+			]);
 			setDialogOptions(options);
+			setEditSplitContext(splitContext);
 			setEditOpen(true);
 		});
 	}
@@ -352,11 +366,13 @@ export function AttachmentsPage({
 						setEditOpen(open);
 						if (!open) {
 							setTransactionToEdit(null);
+							setEditSplitContext(null);
 							setDialogOptions(null);
 							router.refresh();
 						}
 					}}
 					transaction={transactionToEdit}
+					splitContext={editSplitContext}
 					payerOptions={dialogOptions.payerOptions}
 					splitPayerOptions={dialogOptions.splitPayerOptions}
 					defaultPayerId={dialogOptions.defaultPayerId}

@@ -8,6 +8,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import Image from "next/image";
 import Link from "next/link";
 import { DEFAULT_TRANSACTIONS_COLUMN_ORDER } from "@/features/transactions/lib/column-order";
+import { getTransactionPersonDisplay } from "@/features/transactions/lib/reimbursement-display";
 import {
 	CategoryIconBadge,
 	EstablishmentLogo,
@@ -403,10 +404,10 @@ function buildColumns({
 			accessorKey: "pagadorName",
 			header: "Pessoa",
 			cell: ({ row }) => {
-				const { payerId, pagadorName, pagadorAvatar } = row.original;
-				const label = pagadorName?.trim() || "Sem pessoa";
+				const person = getTransactionPersonDisplay(row.original);
+				const label = person.name?.trim() || "Sem pessoa";
 				const displayName = label.split(/\s+/)[0] ?? label;
-				const avatarSrc = getAvatarSrc(pagadorAvatar);
+				const avatarSrc = getAvatarSrc(person.avatar);
 				const initial = displayName.charAt(0).toUpperCase() || "?";
 				const content = (
 					<>
@@ -416,17 +417,24 @@ function buildColumns({
 								{initial}
 							</AvatarFallback>
 						</Avatar>
-						<span className="truncate">{displayName}</span>
+						<span className="min-w-0 truncate">
+							<span className="block truncate">{displayName}</span>
+							{person.subtitle ? (
+								<span className="block truncate text-xs text-muted-foreground">
+									{person.subtitle}
+								</span>
+							) : null}
+						</span>
 					</>
 				);
-				if (!payerId) {
+				if (!person.payerId) {
 					return (
 						<span className="inline-flex items-center gap-2">{content}</span>
 					);
 				}
 				return (
 					<Link
-						href={`/payers/${payerId}`}
+						href={`/payers/${person.payerId}`}
 						className="inline-flex items-center gap-2 hover:underline"
 						title={label}
 					>

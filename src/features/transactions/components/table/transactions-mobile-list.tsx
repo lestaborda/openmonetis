@@ -12,6 +12,7 @@ import {
 } from "@remixicon/react";
 import Image from "next/image";
 import type { ReactNode } from "react";
+import { getTransactionPersonDisplay } from "@/features/transactions/lib/reimbursement-display";
 import { EstablishmentLogo } from "@/shared/components/entity-avatar";
 import MoneyValues from "@/shared/components/money-values";
 import { Badge } from "@/shared/components/ui/badge";
@@ -124,7 +125,8 @@ function TransactionMobileCard({
 	const isReceita = item.transactionType === "Receita";
 	const isTransfer = item.transactionType === "Transferência";
 	const isIncomingTransfer = isTransfer && Number(item.amount) > 0;
-	const payerLabel = item.pagadorName?.trim() || "Sem pessoa";
+	const person = getTransactionPersonDisplay(item);
+	const payerLabel = person.name?.trim() || "Sem pessoa";
 	const payerDisplayName = payerLabel.split(/\s+/)[0] ?? payerLabel;
 	const paymentMethodLabel =
 		item.paymentMethod === "Transferência bancária"
@@ -165,7 +167,15 @@ function TransactionMobileCard({
 										{dueDateLabel}
 									</span>
 								) : null}
-								<span className="truncate">{payerDisplayName}</span>
+								<span className="truncate">
+									{payerDisplayName}
+									{person.subtitle ? (
+										<span className="text-muted-foreground/80">
+											{" "}
+											· {person.subtitle}
+										</span>
+									) : null}
+								</span>
 							</div>
 						</div>
 						<div className="shrink-0 text-right">
