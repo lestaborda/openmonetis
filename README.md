@@ -3,10 +3,10 @@
 </p>
 
 <p align="center">
-  Projeto pessoal de gestão financeira. Self-hosted, manual e open source.
+  Fork pessoal do OpenMonetis para controle financeiro próprio. Self-hosted, sem fins lucrativos.
 </p>
 
-> **⚠️ Nota:** o OpenMonetis não está sendo encerrado, mas o desenvolvimento deve reduzir para quase zero daqui em diante. O app já cobre minhas demandas atuais de gerenciamento financeiro, então novas mudanças tendem a ser pontuais: correções, ajustes necessários e pequenas melhorias quando fizerem bastante sentido para meu uso.
+> **Sobre este repositório:** este é um **fork pessoal** do [OpenMonetis original](https://github.com/felipegcoutinho/openmonetis), mantido por mim ([@lestaborda](https://github.com/lestaborda)) para organizar minhas finanças no dia a dia. As mudanças daqui refletem meu uso real (divisões, a receber, recorrências variáveis, etc.) e **não** formam um produto comercial nem um serviço hospedado.
 
 > **Não há versão online hospedada.** Você precisa clonar o repositório e rodar localmente ou no seu próprio servidor.
 
@@ -17,7 +17,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue?style=flat-square&logo=docker)](https://www.docker.com/)
 [![Android Companion](https://img.shields.io/badge/Companion-Android-3DDC84?style=flat-square&logo=android)](https://github.com/felipegcoutinho/openmonetis-companion)
 [![License](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-orange?style=flat-square&logo=creative-commons)](LICENSE)
-[![Sponsor](https://img.shields.io/badge/Sponsor-❤️-ea4aaa?style=flat-square&logo=github-sponsors)](https://github.com/sponsors/felipegcoutinho)
+[![Upstream](https://img.shields.io/badge/Upstream-felipegcoutinho%2Fopenmonetis-blue?style=flat-square&logo=github)](https://github.com/felipegcoutinho/openmonetis)
 
 ---
 
@@ -42,19 +42,20 @@
 - [Design System](#-design-system)
 - [Arquitetura](#-arquitetura)
 - [Contribuindo](#-contribuindo)
-- [Apoie o Projeto](#-apoie-o-projeto)
-- [Star History](#-star-history)
+- [Projeto original](#-projeto-original)
 - [Licença](#-licença)
 
 ---
 
 ## 🎯 Sobre o Projeto
 
-**OpenMonetis** é um projeto pessoal de gestão financeira que criei para organizar minhas próprias finanças. Cansei de usar planilhas desorganizadas e aplicativos que não fazem exatamente o que preciso, então decidi construir algo do jeito que funciona pra mim.
+**OpenMonetis** é um app self-hosted de gestão financeira. Este repositório é o **meu fork pessoal**: uso ele no dia a dia para controlar contas, cartões, divisões e valores a receber, e vou ajustando o código conforme a minha rotina financeira pede.
 
-A ideia é simples: ter um lugar onde consigo ver todas as minhas contas, cartões, gastos e receitas de forma clara. Se isso for útil pra você também, fique à vontade para usar e contribuir.
+Não é um SaaS, não tem plano pago e **não tem fins lucrativos**. O objetivo é só ter controle claro do meu dinheiro, com os dados sob minha responsabilidade. Se o fork for útil pra você também, fique à vontade para clonar e rodar no seu ambiente — sempre respeitando a licença não-comercial.
 
-> 💡 **Licença Não-Comercial:** Este projeto é gratuito para uso pessoal, mas não pode ser usado comercialmente. Veja mais detalhes na seção [Licença](#-licença).
+O projeto original foi criado por [Felipe Coutinho](https://github.com/felipegcoutinho). Crédito e histórico do upstream: [felipegcoutinho/openmonetis](https://github.com/felipegcoutinho/openmonetis).
+
+> 💡 **Licença Não-Comercial:** gratuito para uso pessoal; não pode ser usado comercialmente. Veja a seção [Licença](#-licença).
 
 ### ⚠️ Avisos importantes
 
@@ -62,7 +63,9 @@ A ideia é simples: ter um lugar onde consigo ver todas as minhas contas, cartõ
 
 **2. Não há Open Finance** — Não há conexão automática com bancos. Você pode registrar transações manualmente, usar o app companion para capturar notificações bancárias ou importar extratos nos formatos OFX e XLS/XLSX.
 
-**3. Requer disciplina** — O OpenMonetis funciona melhor para quem tem disciplina de registrar os gastos regularmente, quer controle total sobre seus dados e gosta de entender exatamente onde o dinheiro está indo.
+**3. Requer disciplina** — O OpenMonetis funciona melhor para quem registra os gastos com regularidade, quer controle total sobre os dados e gosta de entender exatamente para onde o dinheiro está indo.
+
+**4. Este fork é pessoal** — As atualizações daqui priorizam o meu uso. Podem existir diferenças em relação ao repositório original; não há compromisso de roadmap público nem de suporte comercial.
 
 ### Funcionalidades
 
@@ -617,14 +620,16 @@ A regra é: `actions.ts` e `queries.ts` são as portas de entrada da feature. Tu
 
 ## 🤝 Contribuindo
 
-1. **Fork** o projeto
-2. **Clone** seu fork: `git clone https://github.com/seu-usuario/openmonetis.git`
+Este repositório é um fork pessoal. Sugestões e PRs são bem-vindos se fizerem sentido para o uso do app, mas a prioridade continua sendo o meu controle financeiro diário.
+
+1. **Fork** este repositório (ou o [upstream](https://github.com/felipegcoutinho/openmonetis), conforme o caso)
+2. **Clone:** `git clone https://github.com/seu-usuario/openmonetis.git`
 3. **Crie uma branch:** `git checkout -b feature/minha-feature`
 4. **Commit:** `git commit -m 'feat: adiciona minha feature'`
 5. **Push:** `git push origin feature/minha-feature`
 6. Abra um **Pull Request**
 
-Antes de começar, leia o [`CLAUDE.md`](CLAUDE.md) — ele documenta a arquitetura, convenções de nomenclatura, regras de queries e o checklist para novas features. Use TypeScript, commits semânticos e mantenha o `CHANGELOG.md` atualizado.
+Antes de começar, leia o [`CLAUDE.md`](CLAUDE.md) — ele documenta a arquitetura, convenções de nomenclatura, regras de queries e o checklist para novas features. Use TypeScript, commits semânticos e mantenha o `CHANGELOG.md` atualizado quando a mudança for relevante.
 
 ### Publicando uma versão
 
@@ -639,25 +644,15 @@ O workflow da tag valida o código, publica as imagens Docker versionadas e `lat
 
 ---
 
-## 💖 Apoie o Projeto
+## 🌱 Projeto original
 
-Se o **OpenMonetis** está sendo útil, considere se tornar um sponsor!
+O OpenMonetis foi criado e mantido por **Felipe Coutinho**.
 
-[![Sponsor no GitHub](https://img.shields.io/badge/Sponsor_no_GitHub-❤️-ea4aaa?style=for-the-badge&logo=github-sponsors)](https://github.com/sponsors/felipegcoutinho)
+- Upstream: [github.com/felipegcoutinho/openmonetis](https://github.com/felipegcoutinho/openmonetis)
+- Companion Android: [openmonetis-companion](https://github.com/felipegcoutinho/openmonetis-companion)
+- Apoiar o autor original: [GitHub Sponsors](https://github.com/sponsors/felipegcoutinho)
 
-Outras formas de contribuir: ⭐ estrela no repo, reportar bugs, melhorar docs, submeter PRs.
-
----
-
-## ⭐ Star History
-
-<a href="https://www.star-history.com/?repos=felipegcoutinho%2Fopenmonetis&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=felipegcoutinho/openmonetis&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=felipegcoutinho/openmonetis&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=felipegcoutinho/openmonetis&type=date&legend=top-left" />
- </picture>
-</a>
+Este fork existe só para uso pessoal e ajustes sob demanda. Se quiser acompanhar o projeto “oficial”, prefira o repositório upstream.
 
 ---
 
@@ -669,18 +664,20 @@ Outras formas de contribuir: ⭐ estrela no repo, reportar bugs, melhorar docs, 
 
 - ✅ Uso pessoal, modificação, distribuição e fork
 - ❌ Uso comercial, remoção de créditos, mudança de licença
-- 📋 Crédito ao autor, indicar modificações, mesma licença
+- 📋 Crédito ao autor original, indicar modificações, mesma licença
 
 Para o texto legal completo, consulte o arquivo [LICENSE](LICENSE) ou visite [creativecommons.org](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.pt).
 
 ---
 
-**Desenvolvido por:** Felipe Coutinho — [@felipegcoutinho](https://github.com/felipegcoutinho)
+**Projeto original:** Felipe Coutinho — [@felipegcoutinho](https://github.com/felipegcoutinho)
+
+**Fork pessoal:** Leticia Taborda — [@lestaborda](https://github.com/lestaborda)
 
 <div align="center">
 
-**⭐ Se este projeto foi útil pra você:**
+**⭐ Gostou do OpenMonetis?**
 
-Dê uma estrela · [Apoie como sponsor](https://github.com/sponsors/felipegcoutinho) · Compartilhe
+Dê uma estrela no [projeto original](https://github.com/felipegcoutinho/openmonetis) · [Apoie o autor](https://github.com/sponsors/felipegcoutinho)
 
 </div>
