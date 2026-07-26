@@ -52,6 +52,7 @@ type BuildColumnsArgs = {
 	onConvertToRecurring?: (item: TransactionItem) => void;
 	isSettlementLoading: (id: string) => boolean;
 	showActions: boolean;
+	showDateGroups: boolean;
 	columnOrder?: string[] | null;
 };
 
@@ -116,6 +117,7 @@ function buildColumns({
 	onConvertToRecurring,
 	isSettlementLoading,
 	showActions,
+	showDateGroups,
 }: BuildColumnsArgs): ColumnDef<TransactionItem>[] {
 	const noop = () => undefined;
 	const handleEdit = onEdit ?? noop;
@@ -195,12 +197,14 @@ function buildColumns({
 					<span className="flex items-center gap-2">
 						<EstablishmentLogo name={name} size={32} />
 						<span className="flex flex-col py-0.5">
-							<span className="text-xs text-muted-foreground flex items-center gap-2">
-								{formatDate(purchaseDate)}
-								{dueDateLabel ? (
-									<span className="text-primary">{dueDateLabel}</span>
-								) : null}
-							</span>
+							{showDateGroups ? null : (
+								<span className="text-xs text-muted-foreground flex items-center gap-2">
+									{formatDate(purchaseDate)}
+									{dueDateLabel ? (
+										<span className="text-primary">{dueDateLabel}</span>
+									) : null}
+								</span>
+							)}
 							<span className="flex items-center gap-1">
 								<Tooltip>
 									<TooltipTrigger asChild>
@@ -252,6 +256,15 @@ function buildColumns({
 								{installmentBadge ? (
 									<Badge variant="outline" className="px-2 text-xs">
 										{installmentBadge}
+									</Badge>
+								) : null}
+
+								{showDateGroups && dueDateLabel ? (
+									<Badge
+										variant="outline"
+										className="px-2 text-xs text-primary"
+									>
+										{dueDateLabel}
 									</Badge>
 								) : null}
 

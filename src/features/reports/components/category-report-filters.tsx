@@ -228,6 +228,7 @@ export function CategoryReportFilters({
 					<Popover open={startMonthOpen} onOpenChange={setStartMonthOpen} modal>
 						<PopoverTrigger asChild>
 							<Button
+								type="button"
 								variant="outline"
 								className="w-[calc(50%-0.25rem)] md:w-[150px] justify-start text-sm border-dashed"
 								disabled={isLoading}
@@ -253,6 +254,7 @@ export function CategoryReportFilters({
 					<Popover open={endMonthOpen} onOpenChange={setEndMonthOpen} modal>
 						<PopoverTrigger asChild>
 							<Button
+								type="button"
 								variant="outline"
 								className="w-[calc(50%-0.25rem)] md:w-[150px] justify-start text-sm border-dashed"
 								disabled={isLoading}
