@@ -71,6 +71,7 @@ export async function createTransactionAction(
 		const ownershipError = await validateAllOwnership(user.id, {
 			payerId: data.payerId,
 			secondaryPayerId: data.secondaryPayerId,
+			reimbursementDebtorId: data.reimbursementDebtorId,
 			splitPayerIds: data.splitShares?.map((share) => share.payerId),
 			categoryId: data.categoryId,
 			accountId: data.accountId,
@@ -245,6 +246,7 @@ export async function updateTransactionAction(
 		const ownershipError = await validateAllOwnership(user.id, {
 			payerId: data.payerId,
 			secondaryPayerId: data.secondaryPayerId,
+			reimbursementDebtorId: data.reimbursementDebtorId,
 			splitPayerIds: data.splitShares?.map((share) => share.payerId),
 			categoryId: data.categoryId,
 			accountId: data.accountId,
@@ -361,10 +363,18 @@ export async function updateTransactionAction(
 		const wasReimbursement =
 			existing.splitMode === SPLIT_MODES.REIMBURSEMENT &&
 			Boolean(existing.splitGroupId);
+		const isSplitLinkedReceivable =
+			Boolean(existing.reimbursementDebtorId) && Boolean(existing.splitGroupId);
+		const standaloneReceivableDebtorId =
+			!(data.isSplit ?? false) &&
+			data.transactionType === "Receita" &&
+			data.reimbursementDebtorId
+				? data.reimbursementDebtorId
+				: null;
 
-		// Editing a receivable row alone: only allow when not reconfiguring the group
+		// Editing a split-linked receivable row alone: limited fields only
 		if (
-			existing.reimbursementDebtorId &&
+			isSplitLinkedReceivable &&
 			!wantsReimbursement &&
 			!(wasReimbursement && !(data.isSplit ?? false))
 		) {
@@ -629,6 +639,7 @@ export async function updateTransactionAction(
 				dueDate,
 				boletoPaymentDate: boletoPaymentDateValue,
 				period,
+				reimbursementDebtorId: standaloneReceivableDebtorId,
 			})
 			.where(
 				and(eq(transactions.id, data.id), eq(transactions.userId, user.id)),

@@ -121,6 +121,9 @@ export type TransactionFormState = {
 	splitMode: string;
 	primarySplitAmount: string;
 	secondarySplitAmount: string;
+	/** Receita avulsa marcada como a receber de alguém (sem divisão). */
+	isReceivable: boolean;
+	reimbursementDebtorId: string | undefined;
 	accountId: string | undefined;
 	cardId: string | undefined;
 	categoryId: string | undefined;
@@ -253,6 +256,15 @@ export function buildTransactionInitialState(
 		(splitContext?.splitShares.length ?? 0) > 0 &&
 		!isImporting;
 
+	const standaloneReceivableId =
+		!hasSplit &&
+		!isImporting &&
+		anchored?.transactionType === "Receita" &&
+		anchored?.reimbursementDebtorId &&
+		!anchored?.splitGroupId
+			? anchored.reimbursementDebtorId
+			: undefined;
+
 	return {
 		purchaseDate,
 		period:
@@ -279,6 +291,8 @@ export function buildTransactionInitialState(
 			? (splitContext?.primarySplitAmount ?? "")
 			: "",
 		secondarySplitAmount: "",
+		isReceivable: Boolean(standaloneReceivableId),
+		reimbursementDebtorId: standaloneReceivableId,
 		accountId:
 			paymentMethod === "Cartão de crédito"
 				? undefined
@@ -442,8 +456,10 @@ export function applyFieldDependencies(
 		updates.splitMode = SPLIT_MODES.REIMBURSEMENT;
 	}
 
-	// When split is enabled and amount exists, calculate initial split amounts
+	// When split is enabled, clear standalone receivable and set initial amounts
 	if (key === "isSplit" && value === true) {
+		updates.isReceivable = false;
+		updates.reimbursementDebtorId = undefined;
 		updates.splitMode = SPLIT_MODES.REIMBURSEMENT;
 		const totalAmount = Number.parseFloat(currentState.amount) || 0;
 		if (totalAmount > 0) {
@@ -527,6 +543,9 @@ export function applyFieldDependencies(
 		if (secondaryValue && secondaryValue === value) {
 			updates.secondaryPayerId = undefined;
 		}
+		if (currentState.reimbursementDebtorId === value) {
+			updates.reimbursementDebtorId = undefined;
+		}
 		if (currentState.splitShares.some((share) => share.payerId === value)) {
 			const nextShares = currentState.splitShares.filter(
 				(share) => share.payerId !== value,
@@ -543,6 +562,28 @@ export function applyFieldDependencies(
 					totalAmount - otherTotal,
 				).toFixed(2);
 			}
+		}
+	}
+
+	// Receita avulsa a receber: limpar ao sair de Receita
+	if (key === "transactionType" && value !== "Receita") {
+		updates.isReceivable = false;
+		updates.reimbursementDebtorId = undefined;
+	}
+
+	if (key === "isReceivable") {
+		if (value === true) {
+			updates.isSplit = false;
+			updates.secondaryPayerId = undefined;
+			updates.splitShares = [];
+			updates.primarySplitAmount = "";
+			updates.secondarySplitAmount = "";
+			updates.splitMode = SPLIT_MODES.REIMBURSEMENT;
+			if (currentState.paymentMethod !== "Cartão de crédito") {
+				updates.isSettled = false;
+			}
+		} else {
+			updates.reimbursementDebtorId = undefined;
 		}
 	}
 

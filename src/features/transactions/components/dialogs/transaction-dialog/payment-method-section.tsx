@@ -271,10 +271,14 @@ export function PaymentMethodSection({
 				>
 					<div>
 						<p className="text-sm text-foreground text-left">
-							Marcar como pago
+							{formState.isReceivable
+								? "Marcar como recebido"
+								: "Marcar como pago"}
 						</p>
 						<p className="text-xs text-muted-foreground text-left">
-							Indica que o valor já foi pago.
+							{formState.isReceivable
+								? "Indica que o valor já caiu na conta."
+								: "Indica que o valor já foi pago."}
 						</p>
 					</div>
 					<Button
@@ -283,7 +287,13 @@ export function PaymentMethodSection({
 						size="icon-sm"
 						onClick={() => onFieldChange("isSettled", !formState.isSettled)}
 						aria-label={
-							formState.isSettled ? "Desfazer pagamento" : "Marcar como pago"
+							formState.isSettled
+								? formState.isReceivable
+									? "Desfazer recebimento"
+									: "Desfazer pagamento"
+								: formState.isReceivable
+									? "Marcar como recebido"
+									: "Marcar como pago"
 						}
 						aria-pressed={Boolean(formState.isSettled)}
 						className={cn(
