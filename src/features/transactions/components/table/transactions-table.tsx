@@ -43,9 +43,11 @@ import { cn } from "@/shared/utils/ui";
 import { TransactionsExport } from "../transactions-export";
 import type {
 	AccountCardFilterOption,
+	SelectOption,
 	TransactionFilterOption,
 	TransactionItem,
 } from "../types";
+import type { InlineSaveHandler } from "./inline-editable-cells";
 import { TransactionsBulkBar } from "./transactions-bulk-bar";
 import { getTransactionColumns } from "./transactions-columns";
 import { TransactionsFilters } from "./transactions-filters";
@@ -57,6 +59,7 @@ type TransactionsTableProps = {
 	currentUserId: string;
 	noteAsColumn?: boolean;
 	columnOrder?: string[] | null;
+	categoryOptions?: SelectOption[];
 	payerFilterOptions?: TransactionFilterOption[];
 	categoryFilterOptions?: TransactionFilterOption[];
 	accountCardFilterOptions?: AccountCardFilterOption[];
@@ -78,6 +81,7 @@ type TransactionsTableProps = {
 	onToggleSettlement?: (item: TransactionItem) => void;
 	onAnticipate?: (item: TransactionItem) => void;
 	onViewAnticipationHistory?: (item: TransactionItem) => void;
+	onInlineUpdate?: InlineSaveHandler;
 	isSettlementLoading?: (id: string) => boolean;
 	showActions?: boolean;
 	showFilters?: boolean;
@@ -89,6 +93,7 @@ export function TransactionsTable({
 	currentUserId,
 	noteAsColumn = false,
 	columnOrder: columnOrderPreference = null,
+	categoryOptions = [],
 	payerFilterOptions = [],
 	categoryFilterOptions = [],
 	accountCardFilterOptions = [],
@@ -110,6 +115,7 @@ export function TransactionsTable({
 	onToggleSettlement,
 	onAnticipate,
 	onViewAnticipationHistory,
+	onInlineUpdate,
 	isSettlementLoading,
 	showActions = true,
 	showFilters = true,
@@ -136,6 +142,7 @@ export function TransactionsTable({
 			getTransactionColumns({
 				currentUserId,
 				noteAsColumn,
+				categoryOptions,
 				onEdit,
 				onCopy,
 				onImport,
@@ -147,6 +154,7 @@ export function TransactionsTable({
 				onToggleSettlement,
 				onAnticipate,
 				onViewAnticipationHistory,
+				onInlineUpdate,
 				isSettlementLoading: isSettlementLoading ?? (() => false),
 				showActions,
 				showDateGroups: groupTransactionsByDate,
@@ -155,6 +163,7 @@ export function TransactionsTable({
 		[
 			currentUserId,
 			noteAsColumn,
+			categoryOptions,
 			columnOrderPreference,
 			groupTransactionsByDate,
 			onEdit,
@@ -168,6 +177,7 @@ export function TransactionsTable({
 			onToggleSettlement,
 			onAnticipate,
 			onViewAnticipationHistory,
+			onInlineUpdate,
 			isSettlementLoading,
 			showActions,
 		],

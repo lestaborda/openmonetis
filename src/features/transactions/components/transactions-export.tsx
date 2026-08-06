@@ -9,8 +9,10 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { exportTransactionsDataAction } from "@/features/transactions/actions";
+import { RECEIVABLE_FILTER_VALUE } from "@/features/transactions/lib/constants";
 import type { TransactionsExportContext } from "@/features/transactions/lib/export-types";
 import { formatCurrency } from "@/features/transactions/lib/formatting-helpers";
+import { getTransactionPersonDisplay } from "@/features/transactions/lib/reimbursement-display";
 import { Button } from "@/shared/components/ui/button";
 import {
 	DropdownMenu,
@@ -68,9 +70,12 @@ export function TransactionsExport({
 		dateStartFilter || dateEndFilter
 			? `${dateStartFilter ?? "inicio"}-${dateEndFilter ?? "hoje"}`
 			: period;
+	const isReceivableExport =
+		exportContext?.filters.receivableFilter === RECEIVABLE_FILTER_VALUE;
 
 	const getFileName = (extension: string) => {
-		return `lancamentos-${filePeriodSlug}.${extension}`;
+		const prefix = isReceivableExport ? "a-receber" : "lancamentos";
+		return `${prefix}-${filePeriodSlug}.${extension}`;
 	};
 
 	const formatDate = (dateString: string) => {
@@ -98,6 +103,39 @@ export function TransactionsExport({
 		}
 
 		return `${transaction.name} (${transaction.currentInstallment ?? 1}/${transaction.installmentCount})`;
+	};
+
+	const getPersonName = (transaction: TransactionItem) =>
+		getTransactionPersonDisplay(transaction).name ?? "-";
+
+	const summarizeTransactions = (transactions: TransactionItem[]) => {
+		let incomeTotal = 0;
+		let expenseTotal = 0;
+		const debtorNames = new Set<string>();
+
+		for (const item of transactions) {
+			const amount = Math.abs(item.amount ?? 0);
+			if (item.transactionType === "Receita") {
+				incomeTotal += amount;
+			} else if (item.transactionType === "Despesa") {
+				expenseTotal += amount;
+			}
+			if (item.reimbursementDebtorName) {
+				debtorNames.add(item.reimbursementDebtorName);
+			}
+		}
+
+		return {
+			incomeTotal,
+			expenseTotal,
+			balance: incomeTotal - expenseTotal,
+			debtorLabel:
+				debtorNames.size === 1
+					? ([...debtorNames][0] ?? null)
+					: debtorNames.size > 1
+						? `${debtorNames.size} pessoas`
+						: null,
+		};
 	};
 
 	const loadTransactions = async () => {
@@ -142,10 +180,48 @@ export function TransactionsExport({
 					formatCurrency(lancamento.amount),
 					lancamento.categoriaName ?? "-",
 					getContaCartaoName(lancamento),
-					lancamento.pagadorName ?? "-",
+					getPersonName(lancamento),
 				];
 				rows.push(row);
 			});
+
+			const summary = summarizeTransactions(transactions);
+			if (isReceivableExport) {
+				rows.push([
+					"",
+					"TOTAL A RECEBER",
+					"",
+					"",
+					"",
+					formatCurrency(summary.incomeTotal),
+					"",
+					"",
+					summary.debtorLabel ?? "",
+				]);
+			} else {
+				rows.push([
+					"",
+					"TOTAL RECEITAS",
+					"",
+					"",
+					"",
+					formatCurrency(summary.incomeTotal),
+					"",
+					"",
+					"",
+				]);
+				rows.push([
+					"",
+					"TOTAL DESPESAS",
+					"",
+					"",
+					"",
+					formatCurrency(summary.expenseTotal),
+					"",
+					"",
+					"",
+				]);
+			}
 
 			const csvContent = [
 				headers.join(","),
@@ -202,10 +278,48 @@ export function TransactionsExport({
 					lancamento.amount,
 					lancamento.categoriaName ?? "-",
 					getContaCartaoName(lancamento),
-					lancamento.pagadorName ?? "-",
+					getPersonName(lancamento),
 				];
 				rows.push(row);
 			});
+
+			const summary = summarizeTransactions(transactions);
+			if (isReceivableExport) {
+				rows.push([
+					"",
+					"TOTAL A RECEBER",
+					"",
+					"",
+					"",
+					summary.incomeTotal,
+					"",
+					"",
+					summary.debtorLabel ?? "",
+				]);
+			} else {
+				rows.push([
+					"",
+					"TOTAL RECEITAS",
+					"",
+					"",
+					"",
+					summary.incomeTotal,
+					"",
+					"",
+					"",
+				]);
+				rows.push([
+					"",
+					"TOTAL DESPESAS",
+					"",
+					"",
+					"",
+					summary.expenseTotal,
+					"",
+					"",
+					"",
+				]);
+			}
 
 			const workbook = new ExcelJS.Workbook();
 			const ws = workbook.addWorksheet("Lançamentos");
@@ -264,27 +378,45 @@ export function TransactionsExport({
 			}
 
 			const titleX = brandingEndX > 14 ? brandingEndX + 4 : 14;
+			const summary = summarizeTransactions(transactions);
+			const title = isReceivableExport ? "A receber" : "Lançamentos";
 
 			doc.setFont("courier", "normal");
 			doc.setFontSize(16);
-			doc.text("Lançamentos", titleX, 15);
+			doc.text(title, titleX, 15);
 
 			doc.setFontSize(10);
 			doc.text(`Período: ${periodLabel}`, titleX, 22);
-			doc.text(
-				`Gerado em: ${
-					formatDateTime(new Date(), {
-						day: "2-digit",
-						month: "2-digit",
-						year: "numeric",
-					}) ?? "—"
-				}`,
-				titleX,
-				27,
-			);
+			if (isReceivableExport && summary.debtorLabel) {
+				doc.text(`De: ${summary.debtorLabel}`, titleX, 27);
+				doc.text(
+					`Gerado em: ${
+						formatDateTime(new Date(), {
+							day: "2-digit",
+							month: "2-digit",
+							year: "numeric",
+						}) ?? "—"
+					}`,
+					titleX,
+					32,
+				);
+			} else {
+				doc.text(
+					`Gerado em: ${
+						formatDateTime(new Date(), {
+							day: "2-digit",
+							month: "2-digit",
+							year: "numeric",
+						}) ?? "—"
+					}`,
+					titleX,
+					27,
+				);
+			}
+			const lineY = isReceivableExport && summary.debtorLabel ? 36 : 31;
 			doc.setDrawColor(...primaryColor);
 			doc.setLineWidth(0.5);
-			doc.line(14, 31, doc.internal.pageSize.getWidth() - 14, 31);
+			doc.line(14, lineY, doc.internal.pageSize.getWidth() - 14, lineY);
 
 			const headers = [
 				[
@@ -309,13 +441,53 @@ export function TransactionsExport({
 				formatCurrency(lancamento.amount),
 				lancamento.categoriaName ?? "-",
 				getContaCartaoName(lancamento),
-				lancamento.pagadorName ?? "-",
+				getPersonName(lancamento),
 			]);
+
+			const foot = isReceivableExport
+				? [
+						[
+							"",
+							"TOTAL A RECEBER",
+							"",
+							"",
+							"",
+							formatCurrency(summary.incomeTotal),
+							"",
+							"",
+							summary.debtorLabel ?? "",
+						],
+					]
+				: [
+						[
+							"",
+							"TOTAL RECEITAS",
+							"",
+							"",
+							"",
+							formatCurrency(summary.incomeTotal),
+							"",
+							"",
+							"",
+						],
+						[
+							"",
+							"TOTAL DESPESAS",
+							"",
+							"",
+							"",
+							formatCurrency(summary.expenseTotal),
+							"",
+							"",
+							"",
+						],
+					];
 
 			autoTable(doc, {
 				head: headers,
 				body: body,
-				startY: 35,
+				foot,
+				startY: lineY + 4,
 				tableWidth: "auto",
 				styles: {
 					font: "courier",
@@ -325,6 +497,11 @@ export function TransactionsExport({
 				headStyles: {
 					fillColor: primaryColor,
 					textColor: 255,
+					fontStyle: "bold",
+				},
+				footStyles: {
+					fillColor: [245, 245, 245],
+					textColor: 30,
 					fontStyle: "bold",
 				},
 				columnStyles: {
@@ -349,8 +526,16 @@ export function TransactionsExport({
 							}
 						}
 					}
+					if (
+						cellData.section === "foot" &&
+						cellData.column.index === 5 &&
+						isReceivableExport
+					) {
+						cellData.cell.styles.textColor = [22, 163, 74];
+					}
 				},
-				margin: { top: 35 },
+				margin: { top: lineY + 4 },
+				showFoot: "lastPage",
 			});
 
 			doc.save(getFileName("pdf"));

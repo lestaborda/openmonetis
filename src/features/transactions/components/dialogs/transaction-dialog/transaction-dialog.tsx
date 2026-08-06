@@ -261,6 +261,31 @@ export function TransactionDialog({
 			return;
 		}
 
+		if (formState.isReceivable) {
+			if (formState.transactionType !== "Receita") {
+				const message = "A receber só pode ser usado em receitas.";
+				setErrorMessage(message);
+				toast.error(message);
+				return;
+			}
+			if (!formState.reimbursementDebtorId) {
+				const message = "Selecione a pessoa que deve este valor.";
+				setErrorMessage(message);
+				toast.error(message);
+				return;
+			}
+			if (
+				formState.payerId &&
+				formState.reimbursementDebtorId === formState.payerId
+			) {
+				const message =
+					"A pessoa que deve precisa ser diferente da pessoa do lançamento.";
+				setErrorMessage(message);
+				toast.error(message);
+				return;
+			}
+		}
+
 		const amountValue = Number(formState.amount);
 		if (Number.isNaN(amountValue)) {
 			const message = "Informe um valor válido.";
@@ -359,6 +384,10 @@ export function TransactionDialog({
 			paymentMethod:
 				formState.paymentMethod as CreateTransactionInput["paymentMethod"],
 			payerId: formState.payerId ?? null,
+			reimbursementDebtorId:
+				formState.isReceivable && !formState.isSplit
+					? (formState.reimbursementDebtorId ?? null)
+					: null,
 			splitShares: normalizedSplitShares,
 			isSplit: formState.isSplit,
 			splitMode: formState.isSplit
@@ -501,6 +530,14 @@ export function TransactionDialog({
 					secondarySplitAmount: formState.isSplit
 						? Number.parseFloat(formState.secondarySplitAmount) || undefined
 						: undefined,
+					installmentCount:
+						formState.condition === "Parcelado" && formState.installmentCount
+							? Number(formState.installmentCount)
+							: (editAnchor?.installmentCount ?? undefined),
+					recurrenceCount:
+						formState.condition === "Recorrente" && formState.recurrenceCount
+							? Number(formState.recurrenceCount)
+							: (editAnchor?.recurrenceCount ?? undefined),
 					pendingDetachIds,
 					pendingUploadFiles,
 				});

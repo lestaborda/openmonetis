@@ -32,13 +32,20 @@ import { getAvatarSrc } from "@/shared/lib/payers/utils";
 import { formatDate } from "@/shared/utils/date";
 import { getConditionIcon, getPaymentMethodIcon } from "@/shared/utils/icons";
 import { cn } from "@/shared/utils/ui";
-import type { TransactionItem } from "../types";
+import type { SelectOption, TransactionItem } from "../types";
+import {
+	InlineAmountCell,
+	InlineCategoryCell,
+	type InlineSaveHandler,
+	InlineNameCell,
+} from "./inline-editable-cells";
 import { TransactionActionsMenu } from "./transaction-actions-menu";
 import { TransactionSettlementButton } from "./transaction-settlement-button";
 
 type BuildColumnsArgs = {
 	currentUserId: string;
 	noteAsColumn: boolean;
+	categoryOptions?: SelectOption[];
 	onEdit?: (item: TransactionItem) => void;
 	onCopy?: (item: TransactionItem) => void;
 	onImport?: (item: TransactionItem) => void;
@@ -50,6 +57,7 @@ type BuildColumnsArgs = {
 	onViewAnticipationHistory?: (item: TransactionItem) => void;
 	onConvertToInstallment?: (item: TransactionItem) => void;
 	onConvertToRecurring?: (item: TransactionItem) => void;
+	onInlineUpdate?: InlineSaveHandler;
 	isSettlementLoading: (id: string) => boolean;
 	showActions: boolean;
 	showDateGroups: boolean;
@@ -104,6 +112,7 @@ function reorderColumnsByPreference<T>(
 function buildColumns({
 	currentUserId,
 	noteAsColumn,
+	categoryOptions = [],
 	onEdit,
 	onCopy,
 	onImport,
@@ -115,6 +124,7 @@ function buildColumns({
 	onViewAnticipationHistory,
 	onConvertToInstallment,
 	onConvertToRecurring,
+	onInlineUpdate,
 	isSettlementLoading,
 	showActions,
 	showDateGroups,
@@ -131,6 +141,9 @@ function buildColumns({
 	const handleViewAnticipationHistory = onViewAnticipationHistory ?? noop;
 	const handleConvertToInstallment = onConvertToInstallment ?? noop;
 	const handleConvertToRecurring = onConvertToRecurring ?? noop;
+	const handleInlineUpdate: InlineSaveHandler = onInlineUpdate
+		? onInlineUpdate
+		: async () => false;
 
 	const columns: ColumnDef<TransactionItem>[] = [
 		{
@@ -193,137 +206,150 @@ function buildColumns({
 					installmentCount &&
 					installmentCount > 1;
 
-				return (
-					<span className="flex items-center gap-2">
-						<EstablishmentLogo name={name} size={32} />
-						<span className="flex flex-col py-0.5">
-							{showDateGroups ? null : (
-								<span className="text-xs text-muted-foreground flex items-center gap-2">
-									{formatDate(purchaseDate)}
-									{dueDateLabel ? (
-										<span className="text-primary">{dueDateLabel}</span>
-									) : null}
-								</span>
-							)}
-							<span className="flex items-center gap-1">
-								<Tooltip>
-									<TooltipTrigger asChild>
-										<span className="line-clamp-2 max-w-[180px] font-semibold truncate">
+				const subtitle = showDateGroups ? null : (
+					<span className="text-xs text-muted-foreground flex items-center gap-2">
+						{formatDate(purchaseDate)}
+						{dueDateLabel ? (
+							<span className="text-primary">{dueDateLabel}</span>
+						) : null}
+					</span>
+				);
+
+				const badges = (
+					<>
+						{isDivided && (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="inline-flex rounded-full p-1">
+										<RiGroupLine
+											size={14}
+											className="text-muted-foreground"
+											aria-hidden
+										/>
+										<span className="sr-only">Dividido entre pessoas</span>
+									</span>
+								</TooltipTrigger>
+								<TooltipContent side="top">
+									Dividido entre pessoas
+								</TooltipContent>
+							</Tooltip>
+						)}
+
+						{isLastInstallment ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="inline-flex">
+										<Image
+											src="/icons/party.svg"
+											alt="Última parcela"
+											width={16}
+											height={16}
+											className="h-4 w-4"
+										/>
+										<span className="sr-only">Última parcela</span>
+									</span>
+								</TooltipTrigger>
+								<TooltipContent side="top">Última parcela!</TooltipContent>
+							</Tooltip>
+						) : null}
+
+						{installmentBadge ? (
+							<Badge variant="outline" className="px-2 text-xs">
+								{installmentBadge}
+							</Badge>
+						) : null}
+
+						{showDateGroups && dueDateLabel ? (
+							<Badge variant="outline" className="px-2 text-xs text-primary">
+								{dueDateLabel}
+							</Badge>
+						) : null}
+
+						{isAnticipated && (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="inline-flex rounded-full p-1">
+										<RiTimeLine
+											size={14}
+											className="text-muted-foreground"
+											aria-hidden
+										/>
+										<span className="sr-only">Parcela antecipada</span>
+									</span>
+								</TooltipTrigger>
+								<TooltipContent side="top">Parcela antecipada</TooltipContent>
+							</Tooltip>
+						)}
+
+						{!noteAsColumn && hasNote ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="inline-flex rounded-full p-1 hover:bg-accent transition-colors duration-300">
+										<RiChat1Line
+											className="h-4 w-4 text-muted-foreground"
+											aria-hidden
+										/>
+										<span className="sr-only">Ver anotação</span>
+									</span>
+								</TooltipTrigger>
+								<TooltipContent
+									side="top"
+									align="start"
+									className="max-w-xs whitespace-pre-line"
+								>
+									{note}
+								</TooltipContent>
+							</Tooltip>
+						) : null}
+
+						{hasAttachments ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="inline-flex rounded-full p-1">
+										<RiAttachment2
+											className="h-4 w-4 text-muted-foreground"
+											aria-hidden
+										/>
+										<span className="sr-only">Possui anexos</span>
+									</span>
+								</TooltipTrigger>
+								<TooltipContent side="top">Possui anexos</TooltipContent>
+							</Tooltip>
+						) : null}
+					</>
+				);
+
+				if (!onInlineUpdate) {
+					return (
+						<span className="flex items-center gap-2">
+							<EstablishmentLogo name={name} size={32} />
+							<span className="flex flex-col py-0.5">
+								{subtitle}
+								<span className="flex items-center gap-1">
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<span className="line-clamp-2 max-w-[180px] font-semibold truncate">
+												{name}
+											</span>
+										</TooltipTrigger>
+										<TooltipContent side="top" className="max-w-xs">
 											{name}
-										</span>
-									</TooltipTrigger>
-									<TooltipContent side="top" className="max-w-xs">
-										{name}
-									</TooltipContent>
-								</Tooltip>
-
-								{isDivided && (
-									<Tooltip>
-										<TooltipTrigger asChild>
-											<span className="inline-flex rounded-full p-1">
-												<RiGroupLine
-													size={14}
-													className="text-muted-foreground"
-													aria-hidden
-												/>
-												<span className="sr-only">Dividido entre pessoas</span>
-											</span>
-										</TooltipTrigger>
-										<TooltipContent side="top">
-											Dividido entre pessoas
 										</TooltipContent>
 									</Tooltip>
-								)}
-
-								{isLastInstallment ? (
-									<Tooltip>
-										<TooltipTrigger asChild>
-											<span className="inline-flex">
-												<Image
-													src="/icons/party.svg"
-													alt="Última parcela"
-													width={16}
-													height={16}
-													className="h-4 w-4"
-												/>
-												<span className="sr-only">Última parcela</span>
-											</span>
-										</TooltipTrigger>
-										<TooltipContent side="top">Última parcela!</TooltipContent>
-									</Tooltip>
-								) : null}
-
-								{installmentBadge ? (
-									<Badge variant="outline" className="px-2 text-xs">
-										{installmentBadge}
-									</Badge>
-								) : null}
-
-								{showDateGroups && dueDateLabel ? (
-									<Badge
-										variant="outline"
-										className="px-2 text-xs text-primary"
-									>
-										{dueDateLabel}
-									</Badge>
-								) : null}
-
-								{isAnticipated && (
-									<Tooltip>
-										<TooltipTrigger asChild>
-											<span className="inline-flex rounded-full p-1">
-												<RiTimeLine
-													size={14}
-													className="text-muted-foreground"
-													aria-hidden
-												/>
-												<span className="sr-only">Parcela antecipada</span>
-											</span>
-										</TooltipTrigger>
-										<TooltipContent side="top">
-											Parcela antecipada
-										</TooltipContent>
-									</Tooltip>
-								)}
-
-								{!noteAsColumn && hasNote ? (
-									<Tooltip>
-										<TooltipTrigger asChild>
-											<span className="inline-flex rounded-full p-1 hover:bg-accent transition-colors duration-300">
-												<RiChat1Line
-													className="h-4 w-4 text-muted-foreground"
-													aria-hidden
-												/>
-												<span className="sr-only">Ver anotação</span>
-											</span>
-										</TooltipTrigger>
-										<TooltipContent
-											side="top"
-											align="start"
-											className="max-w-xs whitespace-pre-line"
-										>
-											{note}
-										</TooltipContent>
-									</Tooltip>
-								) : null}
-
-								{hasAttachments ? (
-									<Tooltip>
-										<TooltipTrigger asChild>
-											<span className="inline-flex rounded-full p-1">
-												<RiAttachment2
-													className="h-4 w-4 text-muted-foreground"
-													aria-hidden
-												/>
-												<span className="sr-only">Possui anexos</span>
-											</span>
-										</TooltipTrigger>
-										<TooltipContent side="top">Possui anexos</TooltipContent>
-									</Tooltip>
-								) : null}
+									{badges}
+								</span>
 							</span>
 						</span>
-					</span>
+					);
+				}
+
+				return (
+					<InlineNameCell
+						item={row.original}
+						subtitle={subtitle}
+						badges={badges}
+						onSave={handleInlineUpdate}
+					/>
 				);
 			},
 		},
@@ -348,19 +374,28 @@ function buildColumns({
 			accessorKey: "amount",
 			header: "Valor",
 			cell: ({ row }) => {
-				const isReceita = row.original.transactionType === "Receita";
-				const isTransfer = row.original.transactionType === "Transferência";
-				const isIncomingTransfer =
-					isTransfer && Number(row.original.amount) > 0;
+				if (!onInlineUpdate) {
+					const isReceita = row.original.transactionType === "Receita";
+					const isTransfer = row.original.transactionType === "Transferência";
+					const isIncomingTransfer =
+						isTransfer && Number(row.original.amount) > 0;
+					return (
+						<MoneyValues
+							amount={row.original.amount}
+							showPositiveSign={isReceita || isIncomingTransfer}
+							className={cn(
+								"whitespace-nowrap",
+								isReceita ? "text-success" : "text-foreground",
+								isTransfer && "text-info",
+							)}
+						/>
+					);
+				}
+
 				return (
-					<MoneyValues
-						amount={row.original.amount}
-						showPositiveSign={isReceita || isIncomingTransfer}
-						className={cn(
-							"whitespace-nowrap",
-							isReceita ? "text-success" : "text-foreground",
-							isTransfer && "text-info",
-						)}
+					<InlineAmountCell
+						item={row.original}
+						onSave={handleInlineUpdate}
 					/>
 				);
 			},
@@ -397,19 +432,29 @@ function buildColumns({
 			accessorKey: "categoriaName",
 			header: "Categoria",
 			cell: ({ row }) => {
-				const { categoriaName, categoriaIcon } = row.original;
-				if (!categoriaName) {
-					return <span className="text-muted-foreground">—</span>;
+				if (!onInlineUpdate) {
+					const { categoriaName, categoriaIcon } = row.original;
+					if (!categoriaName) {
+						return <span className="text-muted-foreground">—</span>;
+					}
+					return (
+						<span className="flex items-center gap-2">
+							<CategoryIconBadge
+								icon={categoriaIcon}
+								name={categoriaName}
+								size="sm"
+							/>
+							<span>{categoriaName}</span>
+						</span>
+					);
 				}
+
 				return (
-					<span className="flex items-center gap-2">
-						<CategoryIconBadge
-							icon={categoriaIcon}
-							name={categoriaName}
-							size="sm"
-						/>
-						<span>{categoriaName}</span>
-					</span>
+					<InlineCategoryCell
+						item={row.original}
+						categoryOptions={categoryOptions}
+						onSave={handleInlineUpdate}
+					/>
 				);
 			},
 		},

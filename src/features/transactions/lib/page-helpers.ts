@@ -530,7 +530,6 @@ export const buildTransactionWhere = ({
 			and(
 				isNotNull(transactions.reimbursementDebtorId),
 				eq(transactions.transactionType, "Receita"),
-				eq(transactions.isSettled, false),
 			) as SQL,
 		);
 	}

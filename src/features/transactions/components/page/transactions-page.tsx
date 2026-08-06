@@ -13,6 +13,7 @@ import {
 	toggleTransactionSettlementAction,
 	updateTransactionAction,
 	updateTransactionBulkAction,
+	updateTransactionInlineAction,
 	updateTransactionSplitPairAction,
 } from "@/features/transactions/actions";
 import {
@@ -206,6 +207,8 @@ export function TransactionsPage({
 		splitShares?: Array<{ payerId: string; amount: number }>;
 		primarySplitAmount?: number;
 		secondarySplitAmount?: number;
+		installmentCount?: number;
+		recurrenceCount?: number;
 		pendingDetachIds: string[];
 		pendingUploadFiles: File[];
 		transaction: TransactionItem;
@@ -293,6 +296,21 @@ export function TransactionsPage({
 		}
 	};
 
+	const handleInlineUpdate = async (payload: {
+		id: string;
+		name?: string;
+		amount?: number;
+		categoryId?: string | null;
+	}) => {
+		const result = await updateTransactionInlineAction(payload);
+		if (!result.success) {
+			toast.error(result.error);
+			return false;
+		}
+		toast.success(result.message);
+		return true;
+	};
+
 	const handleDelete = async () => {
 		if (!transactionToDelete) {
 			return;
@@ -359,6 +377,8 @@ export function TransactionsPage({
 		splitShares?: Array<{ payerId: string; amount: number }>;
 		primarySplitAmount?: number;
 		secondarySplitAmount?: number;
+		installmentCount?: number;
+		recurrenceCount?: number;
 		pendingDetachIds: string[];
 		pendingUploadFiles: File[];
 	}) => {
@@ -368,6 +388,12 @@ export function TransactionsPage({
 
 		setPendingEditData({
 			...data,
+			installmentCount:
+				data.installmentCount ??
+				selectedTransaction.installmentCount ??
+				undefined,
+			recurrenceCount:
+				data.recurrenceCount ?? selectedTransaction.recurrenceCount ?? undefined,
 			transaction: selectedTransaction,
 		});
 		setEditOpen(false);
@@ -420,6 +446,14 @@ export function TransactionsPage({
 					splitShares: pendingEditData.splitShares,
 					primarySplitAmount: pendingEditData.primarySplitAmount,
 					secondarySplitAmount: pendingEditData.secondarySplitAmount,
+					installmentCount:
+						pendingEditData.installmentCount ??
+						pendingEditData.transaction.installmentCount ??
+						undefined,
+					recurrenceCount:
+						pendingEditData.recurrenceCount ??
+						pendingEditData.transaction.recurrenceCount ??
+						undefined,
 					seriesScope: scope,
 				})
 			: await updateTransactionBulkAction({
@@ -850,6 +884,7 @@ export function TransactionsPage({
 				noteAsColumn={noteAsColumn}
 				columnOrder={columnOrder}
 				groupTransactionsByDate={groupTransactionsByDate}
+				categoryOptions={categoryOptions}
 				payerFilterOptions={payerFilterOptions}
 				categoryFilterOptions={categoryFilterOptions}
 				accountCardFilterOptions={accountCardFilterOptions}
@@ -871,6 +906,7 @@ export function TransactionsPage({
 				onToggleSettlement={handleToggleSettlement}
 				onAnticipate={handleAnticipate}
 				onViewAnticipationHistory={handleViewAnticipationHistory}
+				onInlineUpdate={handleInlineUpdate}
 				isSettlementLoading={(id) => settlementLoadingId === id}
 			/>
 

@@ -146,6 +146,7 @@ export async function validateAllOwnership(
 	fields: {
 		payerId?: string | null;
 		secondaryPayerId?: string | null;
+		reimbursementDebtorId?: string | null;
 		splitPayerIds?: Array<string | null | undefined>;
 		categoryId?: string | null;
 		accountId?: string | null;
@@ -155,6 +156,7 @@ export async function validateAllOwnership(
 	const payerIds = [
 		fields.payerId,
 		fields.secondaryPayerId,
+		fields.reimbursementDebtorId,
 		...(fields.splitPayerIds ?? []),
 	];
 	const [ownedPayerIds, ownedCategoryIds, ownedAccountIds, ownedCardIds] =
@@ -168,6 +170,8 @@ export async function validateAllOwnership(
 	const checks = [
 		!fields.payerId || ownedPayerIds.has(fields.payerId),
 		!fields.secondaryPayerId || ownedPayerIds.has(fields.secondaryPayerId),
+		!fields.reimbursementDebtorId ||
+			ownedPayerIds.has(fields.reimbursementDebtorId),
 		(fields.splitPayerIds ?? []).every((id) => !id || ownedPayerIds.has(id)),
 		!fields.categoryId || ownedCategoryIds.has(fields.categoryId),
 		!fields.accountId || ownedAccountIds.has(fields.accountId),
@@ -177,6 +181,7 @@ export async function validateAllOwnership(
 	const errors = [
 		"Pessoa não encontrada ou sem permissão.",
 		"Pessoa secundária não encontrada ou sem permissão.",
+		"Pessoa que deve não encontrada ou sem permissão.",
 		"Uma das pessoas selecionadas não foi encontrada ou está sem permissão.",
 		"Categoria não encontrada.",
 		"Conta não encontrada.",
@@ -321,6 +326,8 @@ const baseFields = z.object({
 	}),
 	payerId: uuidSchema("Payer").nullable().optional(),
 	secondaryPayerId: uuidSchema("Payer secundário").optional(),
+	/** Pessoa que deve esta receita avulsa (a receber sem divisão). */
+	reimbursementDebtorId: uuidSchema("Pessoa que deve").nullable().optional(),
 	splitShares: z
 		.array(
 			z.object({
@@ -426,12 +433,16 @@ const refineLancamento = (
 	}
 
 	if (data.condition === "Parcelado") {
+		const isUpdate = "id" in data && Boolean(data.id);
+		// Em edição, a quantidade pode vir omitida — o update usa a do lançamento existente.
 		if (!data.installmentCount) {
-			ctx.addIssue({
-				code: z.ZodIssueCode.custom,
-				path: ["installmentCount"],
-				message: "Informe a quantidade de parcelas.",
-			});
+			if (!isUpdate) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["installmentCount"],
+					message: "Informe a quantidade de parcelas.",
+				});
+			}
 		} else if (data.installmentCount < 2) {
 			ctx.addIssue({
 				code: z.ZodIssueCode.custom,
@@ -460,6 +471,15 @@ const refineLancamento = (
 				message: isReimbursement
 					? "Selecione quem pagou o valor integral."
 					: "Selecione a pessoa principal para dividir o lançamento.",
+			});
+		}
+
+		if (data.reimbursementDebtorId) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["reimbursementDebtorId"],
+				message:
+					"Receita a receber avulsa não pode ser combinada com divisão. Use o modo reembolso na divisão.",
 			});
 		}
 
@@ -555,6 +575,23 @@ const refineLancamento = (
 					message: "A soma das divisões deve ser igual ao valor total.",
 				});
 			}
+		}
+	} else if (data.reimbursementDebtorId) {
+		if (data.transactionType !== "Receita") {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["reimbursementDebtorId"],
+				message: "A receber avulso só pode ser usado em receitas.",
+			});
+		}
+
+		if (data.payerId && data.reimbursementDebtorId === data.payerId) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["reimbursementDebtorId"],
+				message:
+					"A pessoa que deve precisa ser diferente da pessoa do lançamento.",
+			});
 		}
 	}
 };
@@ -804,7 +841,12 @@ export const buildTransactionRecords = ({
 		currentInstallment: null as number | null,
 		isDivided: data.isSplit ?? false,
 		splitMode: isSplit ? SPLIT_MODES.COST_SHARE : null,
-		reimbursementDebtorId: null,
+		reimbursementDebtorId:
+			!isSplit &&
+			data.transactionType === "Receita" &&
+			data.reimbursementDebtorId
+				? data.reimbursementDebtorId
+				: null,
 		userId,
 		seriesId,
 	};

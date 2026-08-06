@@ -1151,13 +1151,18 @@ export function TransactionsFilters({
 										/>
 									</div>
 
-									<div className="flex items-center justify-between">
-										<label
-											htmlFor="filter-receivable"
-											className="text-sm font-medium cursor-pointer"
-										>
-											A receber
-										</label>
+									<div className="flex items-center justify-between gap-3">
+										<div className="min-w-0">
+											<label
+												htmlFor="filter-receivable"
+												className="text-sm font-medium cursor-pointer"
+											>
+												A receber
+											</label>
+											<p className="text-xs text-muted-foreground">
+												Receitas de alguém — use Status pra pendentes
+											</p>
+										</div>
 										<Switch
 											id="filter-receivable"
 											checked={

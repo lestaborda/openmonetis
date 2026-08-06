@@ -46,6 +46,7 @@ const CARDS = [
 		helpLines: [
 			"Somamos os lançamentos do tipo Receita no período selecionado.",
 			"Consideramos lançamentos efetivados e não efetivados da pessoa principal (admin).",
+			"Valores a receber de outras pessoas também entram, para dar previsibilidade do mês.",
 			"Movimentações de contas marcadas como não consideradas no saldo total ficam fora deste card.",
 			"Não entram transferências internas nem lançamentos automáticos de fatura.",
 			"Reembolsos não entram como receita; eles abatem despesas e afetam o balanço líquido.",

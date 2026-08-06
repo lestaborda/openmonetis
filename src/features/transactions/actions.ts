@@ -12,5 +12,6 @@ export {
 	deleteTransactionAction,
 	toggleTransactionSettlementAction,
 	updateTransactionAction,
+	updateTransactionInlineAction,
 	updateTransactionSplitPairAction,
 } from "./actions/single-actions";

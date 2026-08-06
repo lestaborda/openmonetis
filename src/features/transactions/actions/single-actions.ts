@@ -2,6 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, ne } from "drizzle-orm";
+import { z } from "zod";
 import {
 	attachments,
 	financialAccounts,
@@ -71,6 +72,7 @@ export async function createTransactionAction(
 		const ownershipError = await validateAllOwnership(user.id, {
 			payerId: data.payerId,
 			secondaryPayerId: data.secondaryPayerId,
+			reimbursementDebtorId: data.reimbursementDebtorId,
 			splitPayerIds: data.splitShares?.map((share) => share.payerId),
 			categoryId: data.categoryId,
 			accountId: data.accountId,
@@ -245,6 +247,7 @@ export async function updateTransactionAction(
 		const ownershipError = await validateAllOwnership(user.id, {
 			payerId: data.payerId,
 			secondaryPayerId: data.secondaryPayerId,
+			reimbursementDebtorId: data.reimbursementDebtorId,
 			splitPayerIds: data.splitShares?.map((share) => share.payerId),
 			categoryId: data.categoryId,
 			accountId: data.accountId,
@@ -361,10 +364,18 @@ export async function updateTransactionAction(
 		const wasReimbursement =
 			existing.splitMode === SPLIT_MODES.REIMBURSEMENT &&
 			Boolean(existing.splitGroupId);
+		const isSplitLinkedReceivable =
+			Boolean(existing.reimbursementDebtorId) && Boolean(existing.splitGroupId);
+		const standaloneReceivableDebtorId =
+			!(data.isSplit ?? false) &&
+			data.transactionType === "Receita" &&
+			data.reimbursementDebtorId
+				? data.reimbursementDebtorId
+				: null;
 
-		// Editing a receivable row alone: only allow when not reconfiguring the group
+		// Editing a split-linked receivable row alone: limited fields only
 		if (
-			existing.reimbursementDebtorId &&
+			isSplitLinkedReceivable &&
 			!wantsReimbursement &&
 			!(wasReimbursement && !(data.isSplit ?? false))
 		) {
@@ -629,6 +640,7 @@ export async function updateTransactionAction(
 				dueDate,
 				boletoPaymentDate: boletoPaymentDateValue,
 				period,
+				reimbursementDebtorId: standaloneReceivableDebtorId,
 			})
 			.where(
 				and(eq(transactions.id, data.id), eq(transactions.userId, user.id)),
@@ -1512,6 +1524,133 @@ export async function toggleTransactionSettlementAction(
 				? `Lançamento marcado como ${settlementVerb}.`
 				: `${unsetVerb} desfeito com sucesso.`,
 		};
+	} catch (error) {
+		return handleActionError(error);
+	}
+}
+
+const inlineUpdateSchema = z.object({
+	id: z.string().uuid("Lançamento inválido."),
+	name: z
+		.string()
+		.trim()
+		.min(1, "Informe a descrição do lançamento.")
+		.optional(),
+	amount: z.coerce
+		.number({ message: "Informe um valor válido." })
+		.min(0, "Informe um valor maior ou igual a zero.")
+		.optional(),
+	categoryId: z.string().uuid("Categoria inválida.").nullable().optional(),
+});
+
+export type InlineUpdateInput = z.infer<typeof inlineUpdateSchema>;
+
+export async function updateTransactionInlineAction(
+	input: InlineUpdateInput,
+): Promise<ActionResult> {
+	try {
+		const user = await getUser();
+		const data = inlineUpdateSchema.parse(input);
+
+		if (
+			data.name === undefined &&
+			data.amount === undefined &&
+			data.categoryId === undefined
+		) {
+			return { success: false, error: "Nenhuma alteração informada." };
+		}
+
+		const ownershipError = await validateAllOwnership(user.id, {
+			categoryId: data.categoryId,
+		});
+		if (ownershipError) {
+			return { success: false, error: ownershipError };
+		}
+
+		const existing = await db.query.transactions.findFirst({
+			columns: {
+				id: true,
+				note: true,
+				transactionType: true,
+				condition: true,
+				paymentMethod: true,
+				isDivided: true,
+				reimbursementDebtorId: true,
+				name: true,
+			},
+			where: and(
+				eq(transactions.id, data.id),
+				eq(transactions.userId, user.id),
+			),
+		});
+
+		if (!existing) {
+			return { success: false, error: "Lançamento não encontrado." };
+		}
+
+		if (existing.note?.startsWith(ACCOUNT_AUTO_INVOICE_NOTE_PREFIX)) {
+			return {
+				success: false,
+				error: "Pagamentos automáticos de fatura não podem ser editados.",
+			};
+		}
+
+		if (isInitialBalanceTransaction(existing)) {
+			return {
+				success: false,
+				error: "Lançamentos de saldo inicial não podem ser editados.",
+			};
+		}
+
+		if (existing.transactionType === "Transferência") {
+			return {
+				success: false,
+				error: "Transferências não podem ser editadas por aqui.",
+			};
+		}
+
+		if (
+			data.amount !== undefined &&
+			existing.isDivided &&
+			!existing.reimbursementDebtorId
+		) {
+			return {
+				success: false,
+				error: "Para alterar o valor de um lançamento dividido, use a edição completa.",
+			};
+		}
+
+		const patch: {
+			name?: string;
+			amount?: string;
+			categoryId?: string | null;
+		} = {};
+
+		if (data.name !== undefined) {
+			patch.name = data.name;
+		}
+
+		if (data.amount !== undefined) {
+			const amountSign: 1 | -1 =
+				existing.transactionType === "Despesa" ? -1 : 1;
+			const amountCents = Math.round(Math.abs(data.amount) * 100);
+			patch.amount = centsToDecimalString(amountCents * amountSign);
+		}
+
+		if (data.categoryId !== undefined) {
+			patch.categoryId = data.categoryId;
+		}
+
+		await db
+			.update(transactions)
+			.set(patch)
+			.where(
+				and(eq(transactions.id, data.id), eq(transactions.userId, user.id)),
+			);
+
+		revalidate(user.id);
+
+		return { success: true, message: "Lançamento atualizado." };
 	} catch (error) {
 		return handleActionError(error);
 	}
