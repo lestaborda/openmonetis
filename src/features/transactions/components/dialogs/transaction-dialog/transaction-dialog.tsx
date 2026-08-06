@@ -530,6 +530,14 @@ export function TransactionDialog({
 					secondarySplitAmount: formState.isSplit
 						? Number.parseFloat(formState.secondarySplitAmount) || undefined
 						: undefined,
+					installmentCount:
+						formState.condition === "Parcelado" && formState.installmentCount
+							? Number(formState.installmentCount)
+							: (editAnchor?.installmentCount ?? undefined),
+					recurrenceCount:
+						formState.condition === "Recorrente" && formState.recurrenceCount
+							? Number(formState.recurrenceCount)
+							: (editAnchor?.recurrenceCount ?? undefined),
 					pendingDetachIds,
 					pendingUploadFiles,
 				});

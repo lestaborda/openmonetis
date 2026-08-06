@@ -433,12 +433,16 @@ const refineLancamento = (
 	}
 
 	if (data.condition === "Parcelado") {
+		const isUpdate = "id" in data && Boolean(data.id);
+		// Em edição, a quantidade pode vir omitida — o update usa a do lançamento existente.
 		if (!data.installmentCount) {
-			ctx.addIssue({
-				code: z.ZodIssueCode.custom,
-				path: ["installmentCount"],
-				message: "Informe a quantidade de parcelas.",
-			});
+			if (!isUpdate) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["installmentCount"],
+					message: "Informe a quantidade de parcelas.",
+				});
+			}
 		} else if (data.installmentCount < 2) {
 			ctx.addIssue({
 				code: z.ZodIssueCode.custom,

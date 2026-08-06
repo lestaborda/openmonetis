@@ -58,6 +58,8 @@ export interface TransactionDialogProps {
 		splitShares?: Array<{ payerId: string; amount: number }>;
 		primarySplitAmount?: number;
 		secondarySplitAmount?: number;
+		installmentCount?: number;
+		recurrenceCount?: number;
 		pendingDetachIds: string[];
 		pendingUploadFiles: File[];
 	}) => void;
