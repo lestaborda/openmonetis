@@ -1,3 +1,4 @@
+import { buildOfxOccurrenceKey } from "./ofx-identity";
 import type { ImportedTransaction, ImportStatement } from "./types";
 
 // Extrai o valor de uma tag leaf do OFX SGML: <TAG>valor
@@ -32,6 +33,7 @@ export function parseOfx(content: string): ImportStatement {
 
 	// Transações
 	const blocks = xml.match(/<STMTTRN>[\s\S]*?<\/STMTTRN>/g) ?? [];
+	const occurrenceCounts = new Map<string, number>();
 	const transactions: ImportedTransaction[] = blocks.map((block) => {
 		const trnType = getField(block, "TRNTYPE") ?? "DEBIT";
 		const dtPosted = getField(block, "DTPOSTED") ?? "";
@@ -41,15 +43,29 @@ export function parseOfx(content: string): ImportStatement {
 		const name = getField(block, "NAME");
 
 		const amount = Number.parseFloat(trnAmt.replace(",", "."));
-		const transactionType =
+		const transactionType: ImportedTransaction["transactionType"] =
 			amount > 0 || trnType === "CREDIT" ? "income" : "expense";
-
-		return {
+		const description = memo ?? name ?? "";
+		const transaction = {
 			externalId: fitId,
 			date: parseOfxDate(dtPosted),
 			amount: Math.abs(amount),
-			description: memo ?? name ?? "",
+			description,
+			sourceDescription: description,
 			transactionType,
+		};
+		const occurrenceKey = buildOfxOccurrenceKey(transaction);
+		const externalIdOccurrence = occurrenceKey
+			? (occurrenceCounts.get(occurrenceKey) ?? 0)
+			: 0;
+
+		if (occurrenceKey) {
+			occurrenceCounts.set(occurrenceKey, externalIdOccurrence + 1);
+		}
+
+		return {
+			...transaction,
+			externalIdOccurrence,
 		};
 	});
 

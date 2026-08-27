@@ -687,6 +687,7 @@ export const transactions = pgTable(
 		),
 		transferId: uuid("transfer_id"),
 		ofxFitId: text("ofx_fit_id"),
+		ofxImportFingerprint: text("ofx_import_fingerprint"),
 		importBatchId: text("import_batch_id"),
 	},
 	(table) => ({
@@ -743,10 +744,12 @@ export const transactions = pgTable(
 		anticipationIdIdx: index("lancamentos_antecipacao_id_idx").on(
 			table.anticipationId,
 		),
-		// Dedup OFX: garante FITID único por usuário
-		ofxFitIdUserIdIdx: uniqueIndex("lancamentos_ofx_fit_id_user_id_idx")
-			.on(table.userId, table.ofxFitId)
-			.where(sql`ofx_fit_id IS NOT NULL`),
+		// Dedup OFX: identifica a transação completa sem assumir FITID único
+		ofxImportFingerprintUserIdIdx: uniqueIndex(
+			"lancamentos_ofx_import_fingerprint_user_id_idx",
+		)
+			.on(table.userId, table.ofxImportFingerprint)
+			.where(sql`ofx_import_fingerprint IS NOT NULL`),
 	}),
 );
 
