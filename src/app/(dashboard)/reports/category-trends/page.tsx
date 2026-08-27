@@ -10,6 +10,7 @@ import { fetchCategoryChartData } from "@/features/reports/lib/category-chart-qu
 import { fetchCategoryReport } from "@/features/reports/lib/category-report-queries";
 import { fetchUserCategories } from "@/features/reports/lib/category-trends-queries";
 import { validateDateRange } from "@/features/reports/lib/utils";
+import { ContentErrorBoundary } from "@/shared/components/feedback/content-error-boundary";
 import { getUserId } from "@/shared/lib/auth/server";
 import type { CategoryReportFilters } from "@/shared/lib/types/reports";
 import { addMonthsToPeriod, getCurrentPeriod } from "@/shared/utils/period";
@@ -29,7 +30,18 @@ const getSingleParam = (
 	return Array.isArray(value) ? (value[0] ?? null) : value;
 };
 
-export default async function Page({ searchParams }: PageProps) {
+export default function Page({ searchParams }: PageProps) {
+	return (
+		<ContentErrorBoundary
+			title="Não foi possível carregar as tendências"
+			description="A evolução das categorias não pôde ser carregada agora."
+		>
+			<CategoryTrendsContent searchParams={searchParams} />
+		</ContentErrorBoundary>
+	);
+}
+
+async function CategoryTrendsContent({ searchParams }: PageProps) {
 	await connection();
 	// Get authenticated user
 	const userId = await getUserId();

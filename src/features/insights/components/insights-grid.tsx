@@ -39,8 +39,8 @@ const CATEGORY_COLORS: Record<
 	{ titleText: string; chatAiIcon: string }
 > = {
 	behaviors: {
-		titleText: "text-orange-700 dark:text-orange-400",
-		chatAiIcon: "text-orange-600 dark:text-orange-400",
+		titleText: "text-blue-700 dark:text-blue-400",
+		chatAiIcon: "text-blue-600 dark:text-blue-400",
 	},
 	triggers: {
 		titleText: "text-amber-700 dark:text-amber-400 ",

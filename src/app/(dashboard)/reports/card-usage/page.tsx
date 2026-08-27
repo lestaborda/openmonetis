@@ -6,6 +6,7 @@ import { CardTopExpenses } from "@/features/reports/components/cards/card-top-ex
 import { CardUsageChart } from "@/features/reports/components/cards/card-usage-chart";
 import { CardsOverview } from "@/features/reports/components/cards/cards-overview";
 import { fetchCartoesReportData } from "@/features/reports/lib/cards-report-queries";
+import { ContentErrorBoundary } from "@/shared/components/feedback/content-error-boundary";
 import MonthNavigation from "@/shared/components/month-picker/month-navigation";
 import { Card } from "@/shared/components/ui/card";
 import { getUser } from "@/shared/lib/auth/server";
@@ -26,9 +27,18 @@ const getSingleParam = (
 	return Array.isArray(value) ? (value[0] ?? null) : value;
 };
 
-export default async function RelatorioCartoesPage({
-	searchParams,
-}: PageProps) {
+export default function CardUsagePage({ searchParams }: PageProps) {
+	return (
+		<ContentErrorBoundary
+			title="Não foi possível carregar o uso dos cartões"
+			description="Os dados deste relatório não puderam ser carregados agora."
+		>
+			<CardUsageContent searchParams={searchParams} />
+		</ContentErrorBoundary>
+	);
+}
+
+async function CardUsageContent({ searchParams }: PageProps) {
 	await connection();
 	const user = await getUser();
 	const resolvedSearchParams = searchParams ? await searchParams : undefined;
