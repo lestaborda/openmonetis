@@ -5,6 +5,15 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.7.14] - 2026-08-27
+
+Esta versão troca o laranja de destaque por um azul oceano que conversa com as superfícies creme do app, sem esfriar o restante da paleta.
+
+### Alterado
+- Identidade visual: a cor primária passa de laranja para um azul oceano (`oklch` hue 228), com hover, gráficos, logo, e-mails e confetes alinhados ao novo destaque.
+- Design system: a paleta de dados deixa de ser uma escala só quente e passa a ser categórica (azul, teal, violeta, verde, dourado, coral), preservando um eco das superfícies quentes.
+- Documentação: `DESIGN.md` e README descrevem o azul como cor de destaque.
+
 ## [2.7.13] - 2026-08-09
 
 Esta versão atualiza a base técnica do OpenMonetis com as correções de segurança e desempenho do Next.js 16.3, acelera as verificações de tipos, melhora a recuperação de falhas nas áreas mais complexas do aplicativo e corrige a importação de extratos OFX que reutilizam identificadores bancários.
