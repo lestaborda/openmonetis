@@ -1,8 +1,10 @@
 export type ImportedTransaction = {
 	externalId: string | null; // FITID do OFX
+	externalIdOccurrence: number; // posição entre registros OFX idênticos
 	date: string; // YYYY-MM-DD
 	amount: number; // positivo = receita, negativo = despesa
 	description: string; // MEMO ou NAME
+	sourceDescription: string; // descrição original, preservada para deduplicação
 	transactionType: "income" | "expense";
 	categoryRaw?: string | null;
 };

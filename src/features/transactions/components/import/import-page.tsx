@@ -1,21 +1,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import {
-	useCallback,
-	useEffect,
-	useMemo,
-	useState,
-	useTransition,
-} from "react";
+import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
 	fetchCategoryMappings,
 	saveCategoryMappings,
 } from "@/features/transactions/actions/category-memory-action";
 import {
-	checkDuplicateFitIds,
-	deleteTransactionByFitId,
+	checkDuplicateOfxTransactions,
+	deleteImportedTransaction,
 	importTransactionsAction,
 	undoImportAction,
 } from "@/features/transactions/actions/import-action";
@@ -43,6 +37,7 @@ import {
 } from "@/shared/components/ui/card";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import type { ImportStatement } from "@/shared/lib/import/types";
+import { createClientSafeId } from "@/shared/utils/id";
 
 const categoryGroupByTransactionType = {
 	expense: "despesa",
@@ -69,6 +64,7 @@ export function ImportPage({
 	const router = useRouter();
 	const [isPending, startTransition] = useTransition();
 	const [isChecking, setIsChecking] = useState(false);
+	const duplicateCheckRequestId = useRef(0);
 
 	const [statement, setStatement] = useState<ImportStatement | null>(null);
 	const [rows, setRows] = useState<ReviewRow[]>([]);
@@ -95,23 +91,45 @@ export function ImportPage({
 
 	const handleParsed = useCallback(
 		async (stmt: ImportStatement) => {
+			const requestId = ++duplicateCheckRequestId.current;
 			setStatement(stmt);
 			setIsChecking(true);
+			const defaultAccountCardValue = stmt.isCreditCard
+				? cardOptions[0]
+					? encodeAccountCard("card", cardOptions[0].value)
+					: null
+				: accountOptions[0]
+					? encodeAccountCard("account", accountOptions[0].value)
+					: null;
+			const destination = defaultAccountCardValue
+				? decodeAccountCard(defaultAccountCardValue)
+				: null;
+			setAccountCardValue(defaultAccountCardValue);
 
 			try {
-				const fitIds = stmt.transactions
-					.map((t) => t.externalId)
-					.filter((id): id is string => id !== null);
-
-				const [duplicates, categoryMappings] = await Promise.all([
-					checkDuplicateFitIds(fitIds).then((ids) => new Set(ids)),
+				const [duplicateResult, categoryMappings] = await Promise.all([
+					destination
+						? checkDuplicateOfxTransactions({
+								source: stmt.source,
+								accountNumber: stmt.accountNumber,
+								destination,
+								rows: stmt.transactions,
+							})
+						: Promise.resolve({ success: true as const, rows: [] }),
 					fetchCategoryMappings(stmt.transactions.map((t) => t.description)),
 				]);
+				if (requestId !== duplicateCheckRequestId.current) return;
+				if (!duplicateResult.success) {
+					toast.error(duplicateResult.error);
+				}
 
 				setRows(
-					stmt.transactions.map((t) => {
+					stmt.transactions.map((t, index) => {
 						let mappedCategoryId =
 							categoryMappings[normalizeDescriptionKey(t.description)] ?? null;
+						const existingTransactionId = duplicateResult.success
+							? (duplicateResult.rows[index]?.existingTransactionId ?? null)
+							: null;
 
 						if (t.categoryRaw) {
 							const categoryRaw = normalizeCategoryName(t.categoryRaw);
@@ -125,8 +143,10 @@ export function ImportPage({
 
 						return {
 							...t,
-							isDuplicate: t.externalId ? duplicates.has(t.externalId) : false,
-							selected: t.externalId ? !duplicates.has(t.externalId) : true,
+							reviewId: createClientSafeId(),
+							existingTransactionId,
+							isDuplicate: existingTransactionId !== null,
+							selected: existingTransactionId === null,
 							payerId,
 							categoryId: isCategoryCompatible(
 								mappedCategoryId,
@@ -138,23 +158,64 @@ export function ImportPage({
 					}),
 				);
 			} finally {
-				setIsChecking(false);
+				if (requestId === duplicateCheckRequestId.current) {
+					setIsChecking(false);
+				}
 			}
 		},
-		[isCategoryCompatible, payerId, categoryOptions],
+		[
+			accountOptions,
+			cardOptions,
+			categoryOptions,
+			isCategoryCompatible,
+			payerId,
+		],
 	);
 
-	// Pré-seleciona cartão ou conta com base no tipo detectado no OFX
-	useEffect(() => {
-		if (!statement || accountCardValue) return;
-		if (statement.isCreditCard && cardOptions[0]) {
-			setAccountCardValue(encodeAccountCard("card", cardOptions[0].value));
-		} else if (!statement.isCreditCard && accountOptions[0]) {
-			setAccountCardValue(
-				encodeAccountCard("account", accountOptions[0].value),
-			);
+	const handleAccountCardChange = async (value: string | null) => {
+		const requestId = ++duplicateCheckRequestId.current;
+		setAccountCardValue(value);
+		const destination = value ? decodeAccountCard(value) : null;
+		if (!statement || !destination) {
+			setIsChecking(false);
+			return;
 		}
-	}, [statement, cardOptions, accountOptions, accountCardValue]);
+
+		setIsChecking(true);
+		try {
+			const result = await checkDuplicateOfxTransactions({
+				source: statement.source,
+				accountNumber: statement.accountNumber,
+				destination,
+				rows,
+			});
+			if (requestId !== duplicateCheckRequestId.current) return;
+			if (!result.success) {
+				toast.error(result.error);
+				return;
+			}
+
+			setRows((previousRows) =>
+				previousRows.map((row, index) => {
+					const existingTransactionId =
+						result.rows[index]?.existingTransactionId ?? null;
+					const isDuplicate = existingTransactionId !== null;
+
+					return {
+						...row,
+						existingTransactionId,
+						selected:
+							row.isDuplicate === isDuplicate ? row.selected : !isDuplicate,
+						isDuplicate,
+					};
+				}),
+			);
+		} finally {
+			if (requestId === duplicateCheckRequestId.current) {
+				setIsChecking(false);
+			}
+		}
+	};
 
 	const toggleRow = (index: number) => {
 		setRows((prev) =>
@@ -184,9 +245,9 @@ export function ImportPage({
 
 	const handleUndoDuplicate = async (index: number) => {
 		const row = rows[index];
-		if (!row?.externalId) return;
+		if (!row?.existingTransactionId) return;
 
-		const result = await deleteTransactionByFitId(row.externalId);
+		const result = await deleteImportedTransaction(row.existingTransactionId);
 		if (!result.success) {
 			toast.error("Não foi possível desfazer a importação anterior.");
 			return;
@@ -194,7 +255,14 @@ export function ImportPage({
 
 		setRows((prev) =>
 			prev.map((r, i) =>
-				i === index ? { ...r, isDuplicate: false, selected: true } : r,
+				i === index
+					? {
+							...r,
+							existingTransactionId: null,
+							isDuplicate: false,
+							selected: true,
+						}
+					: r,
 			),
 		);
 		toast.success("Importação anterior removida.");
@@ -261,11 +329,15 @@ export function ImportPage({
 
 		startTransition(async () => {
 			const result = await importTransactionsAction({
+				source: statement.source,
+				accountNumber: statement.accountNumber,
 				rows: selectedRows.map((r) => ({
 					externalId: r.externalId,
+					externalIdOccurrence: r.externalIdOccurrence,
 					date: r.date,
 					amount: r.amount,
 					description: r.description,
+					sourceDescription: r.sourceDescription,
 					transactionType: r.transactionType,
 					categoryId: r.categoryId,
 					payerId: r.payerId,
@@ -369,7 +441,7 @@ export function ImportPage({
 								accountCardValue={accountCardValue}
 								payerId={payerId}
 								invoicePeriod={invoicePeriod}
-								onAccountCardChange={setAccountCardValue}
+								onAccountCardChange={handleAccountCardChange}
 								onPayerChange={handleBulkPayerChange}
 								onInvoicePeriodChange={setInvoicePeriod}
 								onBulkCategoryChange={handleBulkCategoryChange}
