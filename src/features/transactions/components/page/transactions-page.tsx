@@ -193,6 +193,7 @@ export function TransactionsPage({
 		categoryId: string | undefined;
 		note: string;
 		payerId: string | undefined;
+		reimbursementDebtorId?: string | null;
 		accountId: string | undefined;
 		cardId: string | undefined;
 		amount: number;
@@ -363,6 +364,7 @@ export function TransactionsPage({
 		categoryId: string | undefined;
 		note: string;
 		payerId: string | undefined;
+		reimbursementDebtorId?: string | null;
 		accountId: string | undefined;
 		cardId: string | undefined;
 		amount: number;
@@ -467,6 +469,7 @@ export function TransactionsPage({
 					categoryId: pendingEditData.categoryId,
 					note: pendingEditData.note,
 					payerId: pendingEditData.payerId,
+					reimbursementDebtorId: pendingEditData.reimbursementDebtorId,
 					accountId: pendingEditData.accountId,
 					cardId: pendingEditData.cardId,
 					amount: pendingEditData.amount,

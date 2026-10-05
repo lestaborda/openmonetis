@@ -52,6 +52,10 @@ export function MyAccountsWidget({
 	const excludedAccountsCount = activeAccounts.filter(
 		(account) => account.excludeFromBalance,
 	).length;
+	const totalIncludingExcluded = activeAccounts.reduce(
+		(total, account) => total + account.balance,
+		0,
+	);
 	const visibleAccounts = showExcludedAccounts
 		? activeAccounts
 		: activeAccounts.filter((account) => !account.excludeFromBalance);
@@ -83,6 +87,15 @@ export function MyAccountsWidget({
 				<div className="space-y-1">
 					<p className="text-sm text-muted-foreground">Saldo total</p>
 					<MoneyValues className="text-2xl font-medium" amount={totalBalance} />
+					{excludedAccountsCount > 0 ? (
+						<p className="pt-1 text-xs text-muted-foreground">
+							Com não consideradas{" "}
+							<MoneyValues
+								className="font-medium text-foreground"
+								amount={totalIncludingExcluded}
+							/>
+						</p>
+					) : null}
 				</div>
 
 				{excludedAccountsCount > 0 ? (

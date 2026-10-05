@@ -44,6 +44,7 @@ export interface TransactionDialogProps {
 		categoryId: string | undefined;
 		note: string;
 		payerId: string | undefined;
+		reimbursementDebtorId?: string | null;
 		accountId: string | undefined;
 		cardId: string | undefined;
 		amount: number;

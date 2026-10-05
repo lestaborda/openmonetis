@@ -176,6 +176,7 @@ export async function updateTransactionBulkAction(
 
 		const ownershipError = await validateAllOwnership(user.id, {
 			payerId: data.payerId,
+			reimbursementDebtorId: data.reimbursementDebtorId,
 			categoryId: data.categoryId,
 			accountId: data.accountId,
 			cardId: data.cardId,
@@ -197,6 +198,7 @@ export async function updateTransactionBulkAction(
 				payerId: true,
 				cardId: true,
 				note: true,
+				reimbursementDebtorId: true,
 			},
 			where: and(
 				eq(transactions.id, data.id),
@@ -228,10 +230,19 @@ export async function updateTransactionBulkAction(
 			note: data.note ?? null,
 			// "period" atualiza todos os pagadores do mês — preserva o payerId de cada linha
 			...(data.scope !== "period" && { payerId: data.payerId ?? null }),
+			...(data.reimbursementDebtorId !== undefined && {
+				reimbursementDebtorId: data.reimbursementDebtorId,
+			}),
 			accountId: data.accountId ?? null,
 			cardId: data.cardId ?? null,
 			...(data.isSettled !== undefined && { isSettled: data.isSettled }),
 		};
+
+		// Receita avulsa a receber: a série inteira tem devedor.
+		// Despesa em série: não alterar as receitas de reembolso do mesmo seriesId.
+		const seriesRoleFilter = existing.reimbursementDebtorId
+			? eq(transactions.reimbursementDebtorId, existing.reimbursementDebtorId)
+			: isNull(transactions.reimbursementDebtorId);
 
 		if (data.amount !== undefined) {
 			const amountSign: 1 | -1 =
@@ -480,10 +491,17 @@ export async function updateTransactionBulkAction(
 					eq(transactions.seriesId, existing.seriesId),
 					eq(transactions.userId, user.id),
 					eq(transactions.period, existing.period),
-					isNull(transactions.reimbursementDebtorId),
+					seriesRoleFilter,
 				),
 				orderBy: asc(transactions.purchaseDate),
 			});
+
+			if (periodLancamentos.length === 0) {
+				return {
+					success: false,
+					error: "Nenhum lançamento encontrado para este escopo.",
+				};
+			}
 
 			const invoiceError = await ensureTargetInvoicesAreOpen(periodLancamentos);
 			if (invoiceError) {
@@ -521,10 +539,17 @@ export async function updateTransactionBulkAction(
 					eq(transactions.userId, user.id),
 					sql`${transactions.period} >= ${existing.period}`,
 					payerIdFilter,
-					isNull(transactions.reimbursementDebtorId),
+					seriesRoleFilter,
 				),
 				orderBy: asc(transactions.purchaseDate),
 			});
+
+			if (futureLancamentos.length === 0) {
+				return {
+					success: false,
+					error: "Nenhum lançamento encontrado para este escopo.",
+				};
+			}
 
 			const invoiceError = await ensureTargetInvoicesAreOpen(futureLancamentos);
 			if (invoiceError) {
@@ -557,10 +582,17 @@ export async function updateTransactionBulkAction(
 					eq(transactions.seriesId, existing.seriesId),
 					eq(transactions.userId, user.id),
 					payerIdFilter,
-					isNull(transactions.reimbursementDebtorId),
+					seriesRoleFilter,
 				),
 				orderBy: asc(transactions.purchaseDate),
 			});
+
+			if (allLancamentos.length === 0) {
+				return {
+					success: false,
+					error: "Nenhum lançamento encontrado para este escopo.",
+				};
+			}
 
 			const invoiceError = await ensureTargetInvoicesAreOpen(allLancamentos);
 			if (invoiceError) {

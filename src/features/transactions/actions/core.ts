@@ -2076,6 +2076,7 @@ export const updateBulkSchema = z.object({
 	categoryId: uuidSchema("Category").nullable().optional(),
 	note: noteSchema,
 	payerId: uuidSchema("Payer").nullable().optional(),
+	reimbursementDebtorId: uuidSchema("Pessoa que deve").nullable().optional(),
 	accountId: uuidSchema("FinancialAccount").nullable().optional(),
 	cardId: uuidSchema("Cartão").nullable().optional(),
 	amount: z.coerce

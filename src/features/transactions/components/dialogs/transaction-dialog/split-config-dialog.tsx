@@ -1,6 +1,7 @@
 "use client";
 
 import { SPLIT_MODES } from "@/features/transactions/lib/constants";
+import { allocateAmountsFromRatios } from "@/features/transactions/lib/form-helpers";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 import { CurrencyInput } from "@/shared/components/ui/currency-input";
@@ -48,12 +49,31 @@ type SplitConfigDialogProps = {
 	totalAmount: number;
 };
 
-const getPercentValue = (amount: string, totalAmount: number) => {
-	if (totalAmount <= 0) return "0%";
+const formatRatioPercent = (ratio: number) =>
+	(ratio * 100).toLocaleString("pt-BR", {
+		maximumFractionDigits: 1,
+	});
+
+const getPercentValue = (
+	amount: string,
+	totalAmount: number,
+	ratio?: number,
+) => {
+	if (typeof ratio === "number" && Number.isFinite(ratio)) {
+		return formatRatioPercent(ratio);
+	}
+	if (totalAmount <= 0) return "0";
 	const percentage = (safeToNumber(amount) / totalAmount) * 100;
 	return percentage.toLocaleString("pt-BR", {
 		maximumFractionDigits: 1,
 	});
+};
+
+const parseRatio = (percent: string) => {
+	const normalized = percent.replace(/[^\d.,]/g, "").replace(",", ".");
+	const percentage = Number(normalized);
+	if (!Number.isFinite(percentage)) return 0;
+	return Math.min(100, Math.max(0, percentage)) / 100;
 };
 
 const percentToAmount = (percent: string, totalAmount: number) => {
@@ -64,20 +84,6 @@ const percentToAmount = (percent: string, totalAmount: number) => {
 
 	const clamped = Math.min(100, Math.max(0, percentage));
 	return ((totalAmount * clamped) / 100).toFixed(2);
-};
-
-const getEqualAmounts = (count: number, totalAmount: number) => {
-	if (count <= 0 || totalAmount <= 0) return [];
-
-	const centsTotal = Math.round(totalAmount * 100);
-	const baseCents = Math.floor(centsTotal / count);
-	let remainder = centsTotal - baseCents * count;
-
-	return Array.from({ length: count }, () => {
-		const cents = baseCents + (remainder > 0 ? 1 : 0);
-		remainder -= 1;
-		return (cents / 100).toFixed(2);
-	});
 };
 
 type SplitSummaryPayerOption = {
@@ -205,12 +211,17 @@ export function SplitConfigDialog({
 
 	const applyEqualSplit = (shares = formState.splitShares) => {
 		if (isReimbursement) {
-			const amounts = getEqualAmounts(shares.length, totalAmount);
-			if (amounts.length === 0) return;
+			if (shares.length === 0 || totalAmount <= 0) return;
+			const ratio = 1 / shares.length;
+			const amounts = allocateAmountsFromRatios(
+				shares.map(() => ratio),
+				totalAmount,
+			);
 			onFieldChange(
 				"splitShares",
 				shares.map((share, index) => ({
 					...share,
+					ratio,
 					amount: amounts[index] ?? "0.00",
 				})),
 			);
@@ -218,15 +229,20 @@ export function SplitConfigDialog({
 		}
 
 		const participantCount = (formState.payerId ? 1 : 0) + shares.length;
-		const amounts = getEqualAmounts(participantCount, totalAmount);
-
-		if (amounts.length === 0) return;
+		if (participantCount === 0 || totalAmount <= 0) return;
+		const ratio = 1 / participantCount;
+		const amounts = allocateAmountsFromRatios(
+			Array.from({ length: participantCount }, () => ratio),
+			totalAmount,
+		);
 
 		onFieldChange("primarySplitAmount", amounts[0] ?? "0.00");
+		onFieldChange("primarySplitRatio", ratio);
 		onFieldChange(
 			"splitShares",
 			shares.map((share, index) => ({
 				...share,
+				ratio,
 				amount: amounts[index + 1] ?? "0.00",
 			})),
 		);
@@ -242,7 +258,13 @@ export function SplitConfigDialog({
 
 	const handleSecondaryAmountChange = (payerId: string, value: string) => {
 		const nextShares = formState.splitShares.map((share) =>
-			share.payerId === payerId ? { ...share, amount: value } : share,
+			share.payerId === payerId
+				? {
+						...share,
+						amount: value,
+						ratio: totalAmount > 0 ? safeToNumber(value) / totalAmount : 0,
+					}
+				: share,
 		);
 
 		onFieldChange("splitShares", nextShares);
@@ -263,7 +285,34 @@ export function SplitConfigDialog({
 	};
 
 	const handleSecondaryPercentChange = (payerId: string, percent: string) => {
-		handleSecondaryAmountChange(payerId, percentToAmount(percent, totalAmount));
+		const ratio = parseRatio(percent);
+		const nextShares = formState.splitShares.map((share) =>
+			share.payerId === payerId
+				? {
+						...share,
+						amount: percentToAmount(percent, totalAmount),
+						ratio,
+					}
+				: share,
+		);
+
+		onFieldChange("splitShares", nextShares);
+
+		if (isReimbursement) {
+			return;
+		}
+
+		const othersTotal = nextShares.reduce(
+			(total, share) => total + safeToNumber(share.amount),
+			0,
+		);
+		const primaryAmount = Math.max(0, totalAmount - othersTotal);
+
+		onFieldChange("primarySplitAmount", primaryAmount.toFixed(2));
+		onFieldChange(
+			"primarySplitRatio",
+			totalAmount > 0 ? primaryAmount / totalAmount : 0,
+		);
 	};
 
 	const handleDisableSplit = () => {
@@ -275,12 +324,13 @@ export function SplitConfigDialog({
 		amount: string,
 		onPercentChange: (percent: string) => void,
 		ariaLabel: string,
+		ratio?: number,
 	) => (
 		<div className="relative">
 			<Input
 				type="text"
 				inputMode="decimal"
-				value={getPercentValue(amount, totalAmount)}
+				value={getPercentValue(amount, totalAmount, ratio)}
 				onChange={(event) => onPercentChange(event.target.value)}
 				placeholder="0"
 				aria-label={ariaLabel}
@@ -435,12 +485,15 @@ export function SplitConfigDialog({
 										/>
 										{renderPercentInput(
 											formState.primarySplitAmount,
-											(percent) =>
+											(percent) => {
 												onFieldChange(
 													"primarySplitAmount",
 													percentToAmount(percent, totalAmount),
-												),
+												);
+												onFieldChange("primarySplitRatio", parseRatio(percent));
+											},
 											`Percentual de ${primaryPayerOption.label}`,
+											formState.primarySplitRatio,
 										)}
 									</>
 								) : null}
@@ -493,6 +546,7 @@ export function SplitConfigDialog({
 												(percent) =>
 													handleSecondaryPercentChange(option.value, percent),
 												`Percentual de ${option.label}`,
+												share.ratio,
 											)}
 										</>
 									) : (

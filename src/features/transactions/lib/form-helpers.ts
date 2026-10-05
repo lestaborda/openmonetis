@@ -63,44 +63,53 @@ export function deriveCreditCardPeriod(
 	return period;
 }
 
+function resolveRatio(
+	ratio: number | undefined,
+	amount: string,
+	totalAmount: number,
+): number {
+	if (typeof ratio === "number" && Number.isFinite(ratio)) {
+		return ratio;
+	}
+	if (totalAmount <= 0) return 0;
+	return (Number.parseFloat(amount) || 0) / totalAmount;
+}
+
+export function amountFromRatio(ratio: number, totalAmount: number): string {
+	if (totalAmount <= 0 || !Number.isFinite(ratio)) return "0.00";
+	const cents = Math.round(ratio * Math.round(totalAmount * 100));
+	return (Math.max(0, cents) / 100).toFixed(2);
+}
+
 /**
- * Scales absolute amounts by newTotal/previousTotal and redistributes
- * leftover cents so the scaled parts keep the original proportions.
- * `targetSum` defaults to the scaled sum of the parts (reimbursement);
- * pass `newTotal` for cost_share so parts always close the full amount.
+ * Converts ratios into cent-rounded amounts that sum to the total.
+ * The remainder goes to the largest part so the stored ratios stay intact.
  */
-function scaleAmountsProportionally(
-	amounts: number[],
-	previousTotal: number,
-	newTotal: number,
-	targetSum = (amounts.reduce((sum, amount) => sum + amount, 0) * newTotal) /
-		previousTotal,
+export function allocateAmountsFromRatios(
+	ratios: number[],
+	totalAmount: number,
 ): string[] {
-	if (amounts.length === 0 || previousTotal <= 0 || newTotal <= 0) {
-		return amounts.map(() => "0.00");
+	if (ratios.length === 0 || totalAmount <= 0) {
+		return ratios.map(() => "0.00");
 	}
 
-	const ratio = newTotal / previousTotal;
-	const rawCents = amounts.map((amount) => Math.round(amount * ratio * 100));
-	const targetCents = Math.round(targetSum * 100);
-	let diff = targetCents - rawCents.reduce((sum, cents) => sum + cents, 0);
+	const targetCents = Math.round(totalAmount * 100);
+	const cents = ratios.map((ratio) =>
+		Math.max(0, Math.round((Number.isFinite(ratio) ? ratio : 0) * targetCents)),
+	);
+	const diff = targetCents - cents.reduce((sum, value) => sum + value, 0);
 
-	const adjusted = [...rawCents];
-	let index = 0;
-	while (diff !== 0 && adjusted.length > 0) {
-		const step = diff > 0 ? 1 : -1;
-		const current = adjusted[index % adjusted.length] ?? 0;
-		if (step < 0 && current <= 0) {
-			index += 1;
-			if (index > adjusted.length * 2) break;
-			continue;
+	if (diff !== 0) {
+		let index = 0;
+		for (let cursor = 1; cursor < cents.length; cursor += 1) {
+			if ((cents[cursor] ?? 0) > (cents[index] ?? 0)) {
+				index = cursor;
+			}
 		}
-		adjusted[index % adjusted.length] = current + step;
-		diff -= step;
-		index += 1;
+		cents[index] = Math.max(0, (cents[index] ?? 0) + diff);
 	}
 
-	return adjusted.map((cents) => (Math.max(0, cents) / 100).toFixed(2));
+	return cents.map((value) => (value / 100).toFixed(2));
 }
 
 /**
@@ -116,10 +125,12 @@ export type TransactionFormState = {
 	paymentMethod: string;
 	payerId: string | undefined;
 	secondaryPayerId: string | undefined;
-	splitShares: Array<{ payerId: string; amount: string }>;
+	splitShares: Array<{ payerId: string; amount: string; ratio?: number }>;
 	isSplit: boolean;
 	splitMode: string;
 	primarySplitAmount: string;
+	/** Fração do total da pessoa principal. Não muda quando só o valor total muda. */
+	primarySplitRatio?: number;
 	secondarySplitAmount: string;
 	/** Receita avulsa marcada como a receber de alguém (sem divisão). */
 	isReceivable: boolean;
@@ -256,6 +267,21 @@ export function buildTransactionInitialState(
 		(splitContext?.splitShares.length ?? 0) > 0 &&
 		!isImporting;
 
+	const totalForRatio = Number.parseFloat(amountValue) || 0;
+	const initialSplitShares = hasSplit
+		? (splitContext?.splitShares ?? []).map((share) => ({
+				payerId: share.payerId,
+				amount: share.amount,
+				ratio: totalForRatio > 0 ? Number(share.amount) / totalForRatio : 0,
+			}))
+		: [];
+	const isCostShare =
+		(splitContext?.splitMode ?? anchored?.splitMode) === SPLIT_MODES.COST_SHARE;
+	const primarySplitRatio =
+		hasSplit && isCostShare && totalForRatio > 0
+			? Number(splitContext?.primarySplitAmount ?? 0) / totalForRatio
+			: undefined;
+
 	const standaloneReceivableId =
 		!hasSplit &&
 		!isImporting &&
@@ -281,7 +307,7 @@ export function buildTransactionInitialState(
 		paymentMethod,
 		payerId: fallbackPayerId ?? undefined,
 		secondaryPayerId: undefined,
-		splitShares: hasSplit ? (splitContext?.splitShares ?? []) : [],
+		splitShares: initialSplitShares,
 		isSplit: hasSplit,
 		splitMode:
 			splitContext?.splitMode ??
@@ -290,6 +316,7 @@ export function buildTransactionInitialState(
 		primarySplitAmount: hasSplit
 			? (splitContext?.primarySplitAmount ?? "")
 			: "",
+		primarySplitRatio,
 		secondarySplitAmount: "",
 		isReceivable: Boolean(standaloneReceivableId),
 		reimbursementDebtorId: standaloneReceivableId,
@@ -452,6 +479,7 @@ export function applyFieldDependencies(
 		updates.secondaryPayerId = undefined;
 		updates.splitShares = [];
 		updates.primarySplitAmount = "";
+		updates.primarySplitRatio = undefined;
 		updates.secondarySplitAmount = "";
 		updates.splitMode = SPLIT_MODES.REIMBURSEMENT;
 	}
@@ -464,66 +492,95 @@ export function applyFieldDependencies(
 		const totalAmount = Number.parseFloat(currentState.amount) || 0;
 		if (totalAmount > 0) {
 			updates.primarySplitAmount = totalAmount.toFixed(2);
+			updates.primarySplitRatio = 1;
 			updates.secondarySplitAmount = "";
 		}
 	}
 
+	if (key === "splitShares" && Array.isArray(value)) {
+		const totalAmount = Number.parseFloat(currentState.amount) || 0;
+		updates.splitShares = value.map((share) => ({
+			...share,
+			ratio: resolveRatio(share.ratio, share.amount, totalAmount),
+		}));
+	}
+
+	if (key === "primarySplitAmount" && typeof value === "string") {
+		const totalAmount = Number.parseFloat(currentState.amount) || 0;
+		updates.primarySplitRatio = resolveRatio(undefined, value, totalAmount);
+	}
+
 	// When amount changes and split is enabled, recalculate split amounts
+	// from the stored ratios. The currency field emits every digit, so scaling
+	// from the previous rounded amount would drift the percentage.
 	if (key === "amount" && typeof value === "string" && currentState.isSplit) {
 		const totalAmount = Number.parseFloat(value) || 0;
 		const previousTotal = Number.parseFloat(currentState.amount) || 0;
 
 		if (totalAmount <= 0) {
 			updates.primarySplitAmount = "";
+			updates.primarySplitRatio = resolveRatio(
+				currentState.primarySplitRatio,
+				currentState.primarySplitAmount,
+				previousTotal,
+			);
 			updates.splitShares = currentState.splitShares.map((share) => ({
 				...share,
 				amount: "",
+				ratio: resolveRatio(share.ratio, share.amount, previousTotal),
 			}));
 		} else if (
 			currentState.splitMode === SPLIT_MODES.REIMBURSEMENT &&
-			currentState.splitShares.length > 0 &&
-			previousTotal > 0
+			currentState.splitShares.length > 0
 		) {
-			// Contas variáveis (luz/aluguel): mantém a proporção do a receber
-			const scaled = scaleAmountsProportionally(
-				currentState.splitShares.map(
-					(share) => Number.parseFloat(share.amount) || 0,
-				),
-				previousTotal,
-				totalAmount,
+			const ratios = currentState.splitShares.map((share) =>
+				resolveRatio(share.ratio, share.amount, previousTotal),
 			);
+			const totalCents = Math.round(totalAmount * 100);
+			const cents = ratios.map((ratio) =>
+				Math.max(0, Math.round(ratio * totalCents)),
+			);
+			let receivableCents = cents.reduce((sum, value) => sum + value, 0);
+			if (receivableCents > totalCents && cents.length > 0) {
+				let index = 0;
+				for (let cursor = 1; cursor < cents.length; cursor += 1) {
+					if ((cents[cursor] ?? 0) > (cents[index] ?? 0)) {
+						index = cursor;
+					}
+				}
+				cents[index] = Math.max(
+					0,
+					(cents[index] ?? 0) - (receivableCents - totalCents),
+				);
+				receivableCents = cents.reduce((sum, value) => sum + value, 0);
+			}
 			updates.splitShares = currentState.splitShares.map((share, index) => ({
 				...share,
-				amount: scaled[index] ?? "0.00",
+				amount: ((cents[index] ?? 0) / 100).toFixed(2),
+				ratio: ratios[index],
 			}));
-			const receivableTotal = scaled.reduce(
-				(sum, amount) => sum + (Number.parseFloat(amount) || 0),
-				0,
-			);
-			updates.primarySplitAmount = Math.max(
-				0,
-				totalAmount - receivableTotal,
+			updates.primarySplitAmount = (
+				(totalCents - receivableCents) /
+				100
 			).toFixed(2);
-		} else if (
-			currentState.splitMode === SPLIT_MODES.COST_SHARE &&
-			previousTotal > 0
-		) {
-			const parts = [
-				Number.parseFloat(currentState.primarySplitAmount) || 0,
-				...currentState.splitShares.map(
-					(share) => Number.parseFloat(share.amount) || 0,
+		} else if (currentState.splitMode === SPLIT_MODES.COST_SHARE) {
+			const ratios = [
+				resolveRatio(
+					currentState.primarySplitRatio,
+					currentState.primarySplitAmount,
+					previousTotal,
+				),
+				...currentState.splitShares.map((share) =>
+					resolveRatio(share.ratio, share.amount, previousTotal),
 				),
 			];
-			const scaled = scaleAmountsProportionally(
-				parts,
-				previousTotal,
-				totalAmount,
-				totalAmount,
-			);
-			updates.primarySplitAmount = scaled[0] ?? "0.00";
+			const amounts = allocateAmountsFromRatios(ratios, totalAmount);
+			updates.primarySplitAmount = amounts[0] ?? "0.00";
+			updates.primarySplitRatio = ratios[0];
 			updates.splitShares = currentState.splitShares.map((share, index) => ({
 				...share,
-				amount: scaled[index + 1] ?? "0.00",
+				amount: amounts[index + 1] ?? "0.00",
+				ratio: ratios[index + 1],
 			}));
 		} else if (totalAmount > 0) {
 			const otherTotal = currentState.splitShares.reduce(
@@ -557,10 +614,10 @@ export function applyFieldDependencies(
 					(total, share) => total + (Number.parseFloat(share.amount) || 0),
 					0,
 				);
-				updates.primarySplitAmount = Math.max(
-					0,
-					totalAmount - otherTotal,
-				).toFixed(2);
+				const primaryAmount = Math.max(0, totalAmount - otherTotal);
+				updates.primarySplitAmount = primaryAmount.toFixed(2);
+				updates.primarySplitRatio =
+					totalAmount > 0 ? primaryAmount / totalAmount : 0;
 			}
 		}
 	}
@@ -577,6 +634,7 @@ export function applyFieldDependencies(
 			updates.secondaryPayerId = undefined;
 			updates.splitShares = [];
 			updates.primarySplitAmount = "";
+			updates.primarySplitRatio = undefined;
 			updates.secondarySplitAmount = "";
 			updates.splitMode = SPLIT_MODES.REIMBURSEMENT;
 			if (currentState.paymentMethod !== "Cartão de crédito") {

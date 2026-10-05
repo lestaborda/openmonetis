@@ -601,6 +601,10 @@ export function TransactionDialog({
 					categoryId: formState.categoryId,
 					note: formState.note.trim() || "",
 					payerId: formState.payerId,
+					reimbursementDebtorId:
+						formState.isReceivable && !formState.isSplit
+							? (formState.reimbursementDebtorId ?? null)
+							: null,
 					accountId: formState.accountId,
 					cardId: formState.cardId,
 					amount: sanitizedAmount,
