@@ -393,7 +393,9 @@ export function TransactionsPage({
 				selectedTransaction.installmentCount ??
 				undefined,
 			recurrenceCount:
-				data.recurrenceCount ?? selectedTransaction.recurrenceCount ?? undefined,
+				data.recurrenceCount ??
+				selectedTransaction.recurrenceCount ??
+				undefined,
 			transaction: selectedTransaction,
 		});
 		setEditOpen(false);

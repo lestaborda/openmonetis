@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { transactions } from "@/db/schema";
 import {
@@ -9,23 +9,49 @@ import {
 	validateCartaoOwnership,
 	validateContaOwnership,
 } from "@/features/transactions/actions/core";
+import { createOfxImportFingerprint } from "@/features/transactions/lib/ofx-import-fingerprint";
 import { revalidateForEntity } from "@/shared/lib/actions/helpers";
 import { getUserId } from "@/shared/lib/auth/server";
 import { db } from "@/shared/lib/db";
+import {
+	normalizeOfxIdentityText,
+	type OfxIdentityRow,
+	type OfxImportDestination,
+} from "@/shared/lib/import/ofx-identity";
 import { uuidSchema } from "@/shared/lib/schemas/common";
-import { parseLocalDateString } from "@/shared/utils/date";
+import { formatDecimalForDbRequired } from "@/shared/utils/currency";
+import { parseLocalDateString, toDateOnlyString } from "@/shared/utils/date";
 
-const importRowSchema = z.object({
+const ofxIdentityRowSchema = z.object({
 	externalId: z.string().nullable(),
+	externalIdOccurrence: z.number().int().nonnegative(),
 	date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida."),
 	amount: z.number().positive(),
-	description: z.string().min(1, "Descrição obrigatória."),
 	transactionType: z.enum(["income", "expense"]),
+	sourceDescription: z.string(),
+});
+
+const ofxImportDestinationSchema = z.discriminatedUnion("type", [
+	z.object({ type: z.literal("account"), id: uuidSchema("Conta") }),
+	z.object({ type: z.literal("card"), id: uuidSchema("Cartão") }),
+]);
+
+const duplicateCheckSchema = z.object({
+	source: z.string().min(1),
+	accountNumber: z.string().nullable(),
+	destination: ofxImportDestinationSchema,
+	rows: z.array(ofxIdentityRowSchema),
+});
+
+const importRowSchema = ofxIdentityRowSchema.extend({
+	description: z.string().min(1, "Descrição obrigatória."),
 	categoryId: uuidSchema("Category").nullable().optional(),
 	payerId: uuidSchema("Payer").nullable().optional(),
 });
 
 const importSchema = z.object({
+	source: z.string().min(1),
+	accountNumber: z.string().nullable(),
 	rows: z.array(importRowSchema).min(1, "Selecione ao menos uma transação."),
 	payerId: uuidSchema("Payer").nullable().optional(),
 	accountId: uuidSchema("FinancialAccount").nullable().optional(),
@@ -44,22 +70,197 @@ type ImportResult =
 	| { success: true; imported: number; skipped: number; importBatchId: string }
 	| { success: false; error: string };
 
-// Retorna os externalIds que já existem para o usuário (para marcar duplicatas)
-export async function checkDuplicateFitIds(
-	fitIds: string[],
-): Promise<string[]> {
-	const userId = await getUserId();
-	const ids = fitIds.filter(Boolean);
-	if (ids.length === 0) return [];
+type ImportMatch = {
+	fingerprint: string | null;
+	existingTransactionId: string | null;
+};
 
-	const rows = await db
-		.select({ ofxFitId: transactions.ofxFitId })
-		.from(transactions)
-		.where(
-			and(eq(transactions.userId, userId), inArray(transactions.ofxFitId, ids)),
+type LegacyImportCandidate = {
+	id: string;
+	name: string;
+	amount: string;
+	purchaseDate: Date;
+	transactionType: string;
+	ofxFitId: string | null;
+	accountId: string | null;
+	cardId: string | null;
+};
+
+function isDestinationMatch(
+	candidate: LegacyImportCandidate,
+	destination: OfxImportDestination,
+): boolean {
+	return destination.type === "card"
+		? candidate.cardId === destination.id
+		: candidate.accountId === destination.id;
+}
+
+function isLegacyImportMatch(
+	candidate: LegacyImportCandidate,
+	row: OfxIdentityRow,
+	destination: OfxImportDestination,
+): boolean {
+	if (
+		!row.externalId ||
+		row.externalIdOccurrence !== 0 ||
+		candidate.ofxFitId !== row.externalId ||
+		!isDestinationMatch(candidate, destination)
+	) {
+		return false;
+	}
+
+	const expectedType = row.transactionType === "income" ? "Receita" : "Despesa";
+	const signedAmount =
+		row.transactionType === "expense" ? -row.amount : row.amount;
+
+	return (
+		toDateOnlyString(candidate.purchaseDate) === row.date &&
+		formatDecimalForDbRequired(Number(candidate.amount)) ===
+			formatDecimalForDbRequired(signedAmount) &&
+		candidate.transactionType === expectedType &&
+		normalizeOfxIdentityText(candidate.name) ===
+			normalizeOfxIdentityText(row.sourceDescription)
+	);
+}
+
+async function findExistingImports(
+	userId: string,
+	source: string,
+	accountNumber: string | null,
+	destination: OfxImportDestination,
+	rows: OfxIdentityRow[],
+): Promise<ImportMatch[]> {
+	const fingerprints = rows.map((row) =>
+		createOfxImportFingerprint({
+			source,
+			accountNumber,
+			destination,
+			row,
+		}),
+	);
+	const fingerprintValues = [
+		...new Set(
+			fingerprints.filter(
+				(fingerprint): fingerprint is string => fingerprint !== null,
+			),
+		),
+	];
+	const fitIds = [
+		...new Set(
+			rows
+				.map((row) => row.externalId)
+				.filter((fitId): fitId is string => fitId !== null),
+		),
+	];
+
+	const [fingerprintMatches, legacyCandidates] = await Promise.all([
+		fingerprintValues.length > 0
+			? db
+					.select({
+						id: transactions.id,
+						fingerprint: transactions.ofxImportFingerprint,
+					})
+					.from(transactions)
+					.where(
+						and(
+							eq(transactions.userId, userId),
+							inArray(transactions.ofxImportFingerprint, fingerprintValues),
+						),
+					)
+			: Promise.resolve([]),
+		fitIds.length > 0
+			? db
+					.select({
+						id: transactions.id,
+						name: transactions.name,
+						amount: transactions.amount,
+						purchaseDate: transactions.purchaseDate,
+						transactionType: transactions.transactionType,
+						ofxFitId: transactions.ofxFitId,
+						accountId: transactions.accountId,
+						cardId: transactions.cardId,
+					})
+					.from(transactions)
+					.where(
+						and(
+							eq(transactions.userId, userId),
+							isNull(transactions.ofxImportFingerprint),
+							inArray(transactions.ofxFitId, fitIds),
+						),
+					)
+			: Promise.resolve([]),
+	]);
+
+	const transactionIdByFingerprint = new Map(
+		fingerprintMatches.flatMap((match) =>
+			match.fingerprint ? [[match.fingerprint, match.id] as const] : [],
+		),
+	);
+	const consumedLegacyIds = new Set<string>();
+
+	return rows.map((row, index) => {
+		const fingerprint = fingerprints[index] ?? null;
+		const currentTransactionId = fingerprint
+			? (transactionIdByFingerprint.get(fingerprint) ?? null)
+			: null;
+
+		if (currentTransactionId) {
+			return { fingerprint, existingTransactionId: currentTransactionId };
+		}
+
+		const legacyMatch = legacyCandidates.find(
+			(candidate) =>
+				!consumedLegacyIds.has(candidate.id) &&
+				isLegacyImportMatch(candidate, row, destination),
 		);
 
-	return rows.map((r) => r.ofxFitId).filter((id): id is string => id !== null);
+		if (legacyMatch) {
+			consumedLegacyIds.add(legacyMatch.id);
+		}
+
+		return {
+			fingerprint,
+			existingTransactionId: legacyMatch?.id ?? null,
+		};
+	});
+}
+
+async function validateDestinationOwnership(
+	userId: string,
+	destination: OfxImportDestination,
+): Promise<boolean> {
+	return destination.type === "card"
+		? validateCartaoOwnership(userId, destination.id)
+		: validateContaOwnership(userId, destination.id);
+}
+
+export async function checkDuplicateOfxTransactions(
+	input: unknown,
+): Promise<
+	{ success: true; rows: ImportMatch[] } | { success: false; error: string }
+> {
+	const userId = await getUserId();
+	const parsed = duplicateCheckSchema.safeParse(input);
+
+	if (!parsed.success) {
+		return { success: false, error: "Dados do arquivo inválidos." };
+	}
+
+	const { source, accountNumber, destination, rows } = parsed.data;
+	if (!(await validateDestinationOwnership(userId, destination))) {
+		return { success: false, error: "Conta ou cartão não encontrado." };
+	}
+
+	return {
+		success: true,
+		rows: await findExistingImports(
+			userId,
+			source,
+			accountNumber,
+			destination,
+			rows,
+		),
+	};
 }
 
 export async function importTransactionsAction(
@@ -75,8 +276,25 @@ export async function importTransactionsAction(
 		};
 	}
 
-	const { rows, payerId, accountId, cardId, paymentMethod, invoicePeriod } =
-		parsed.data;
+	const {
+		source,
+		accountNumber,
+		rows,
+		payerId,
+		accountId,
+		cardId,
+		paymentMethod,
+		invoicePeriod,
+	} = parsed.data;
+	const destination: OfxImportDestination | null = cardId
+		? { type: "card", id: cardId }
+		: accountId
+			? { type: "account", id: accountId }
+			: null;
+
+	if (!destination || (accountId && cardId)) {
+		return { success: false, error: "Selecione uma conta ou cartão." };
+	}
 
 	const payerIdsByRow = rows.map((row) => row.payerId ?? payerId ?? null);
 
@@ -109,8 +327,33 @@ export async function importTransactionsAction(
 	if (!accountOk) return { success: false, error: "Conta não encontrada." };
 	if (!cardOk) return { success: false, error: "Cartão não encontrado." };
 
-	if (rows.length === 0) {
-		return { success: true, imported: 0, skipped: 0, importBatchId: "" };
+	const importMatches = await findExistingImports(
+		userId,
+		source,
+		accountNumber,
+		destination,
+		rows,
+	);
+	const rowsToImport = rows.flatMap((row, index) => {
+		const match = importMatches[index];
+		return match?.existingTransactionId
+			? []
+			: [
+					{
+						row,
+						payerId: payerIdsByRow[index],
+						fingerprint: match?.fingerprint ?? null,
+					},
+				];
+	});
+
+	if (rowsToImport.length === 0) {
+		return {
+			success: true,
+			imported: 0,
+			skipped: rows.length,
+			importBatchId: "",
+		};
 	}
 
 	const importBatchId = crypto.randomUUID();
@@ -118,7 +361,7 @@ export async function importTransactionsAction(
 	// Cartão de crédito: fatura pode ainda não ter sido paga
 	const isSettled = paymentMethod !== "Cartão de crédito";
 
-	const records = rows.map((row, index) => {
+	const records = rowsToImport.map(({ row, payerId, fingerprint }) => {
 		const purchaseDate = parseLocalDateString(row.date);
 		const period =
 			invoicePeriod ??
@@ -137,21 +380,24 @@ export async function importTransactionsAction(
 			period,
 			isSettled,
 			userId,
-			payerId: payerIdsByRow[index],
+			payerId,
 			accountId: accountId ?? null,
 			cardId: cardId ?? null,
 			categoryId: row.categoryId ?? null,
 			ofxFitId: row.externalId,
+			ofxImportFingerprint: fingerprint,
 			importBatchId,
 		};
 	});
 
-	// onConflictDoNothing usa o uniqueIndex (userId, ofxFitId) WHERE ofxFitId IS NOT NULL
-	// eliminando o SELECT prévio de checkDuplicateFitIds
+	// O índice de fingerprint protege contra importações concorrentes do mesmo OFX.
 	const inserted = await db
 		.insert(transactions)
 		.values(records)
-		.onConflictDoNothing()
+		.onConflictDoNothing({
+			target: [transactions.userId, transactions.ofxImportFingerprint],
+			where: sql`ofx_import_fingerprint IS NOT NULL`,
+		})
 		.returning({ id: transactions.id });
 
 	await revalidateForEntity("transactions", userId);
@@ -159,23 +405,31 @@ export async function importTransactionsAction(
 	return {
 		success: true,
 		imported: inserted.length,
-		skipped: records.length - inserted.length,
+		skipped: rows.length - inserted.length,
 		importBatchId,
 	};
 }
 
-export async function deleteTransactionByFitId(
-	fitId: string,
+export async function deleteImportedTransaction(
+	transactionId: string,
 ): Promise<{ success: boolean; error?: string }> {
-	if (!fitId) return { success: false, error: "FITID inválido." };
+	const parsedId = uuidSchema("Lançamento").safeParse(transactionId);
+	if (!parsedId.success) {
+		return { success: false, error: "Lançamento inválido." };
+	}
 
 	const userId = await getUserId();
 
-	await db
+	const deleted = await db
 		.delete(transactions)
 		.where(
-			and(eq(transactions.userId, userId), eq(transactions.ofxFitId, fitId)),
-		);
+			and(eq(transactions.userId, userId), eq(transactions.id, parsedId.data)),
+		)
+		.returning({ id: transactions.id });
+
+	if (deleted.length === 0) {
+		return { success: false, error: "Lançamento não encontrado." };
+	}
 
 	await revalidateForEntity("transactions", userId);
 

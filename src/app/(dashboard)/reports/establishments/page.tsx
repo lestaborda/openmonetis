@@ -8,6 +8,7 @@ import {
 	fetchTopEstablishmentsData,
 	type PeriodFilter,
 } from "@/features/reports/establishments/queries";
+import { ContentErrorBoundary } from "@/shared/components/feedback/content-error-boundary";
 import { Card } from "@/shared/components/ui/card";
 import { getUser } from "@/shared/lib/auth/server";
 import { parsePeriodParam } from "@/shared/utils/period";
@@ -34,9 +35,18 @@ const validatePeriodFilter = (value: string | null): PeriodFilter => {
 	return "6";
 };
 
-export default async function TopEstablishmentsPage({
-	searchParams,
-}: PageProps) {
+export default function EstablishmentsPage({ searchParams }: PageProps) {
+	return (
+		<ContentErrorBoundary
+			title="Não foi possível carregar os estabelecimentos"
+			description="Os dados deste relatório não puderam ser carregados agora."
+		>
+			<EstablishmentsContent searchParams={searchParams} />
+		</ContentErrorBoundary>
+	);
+}
+
+async function EstablishmentsContent({ searchParams }: PageProps) {
 	await connection();
 	const user = await getUser();
 	const resolvedSearchParams = searchParams ? await searchParams : undefined;

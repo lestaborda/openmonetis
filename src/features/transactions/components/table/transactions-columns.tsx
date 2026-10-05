@@ -36,8 +36,8 @@ import type { SelectOption, TransactionItem } from "../types";
 import {
 	InlineAmountCell,
 	InlineCategoryCell,
-	type InlineSaveHandler,
 	InlineNameCell,
+	type InlineSaveHandler,
 } from "./inline-editable-cells";
 import { TransactionActionsMenu } from "./transaction-actions-menu";
 import { TransactionSettlementButton } from "./transaction-settlement-button";
@@ -393,10 +393,7 @@ function buildColumns({
 				}
 
 				return (
-					<InlineAmountCell
-						item={row.original}
-						onSave={handleInlineUpdate}
-					/>
+					<InlineAmountCell item={row.original} onSave={handleInlineUpdate} />
 				);
 			},
 		},

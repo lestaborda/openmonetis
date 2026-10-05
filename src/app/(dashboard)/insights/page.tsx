@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import { InsightsPage } from "@/features/insights/components/insights-page";
+import { ContentErrorBoundary } from "@/shared/components/feedback/content-error-boundary";
 import MonthNavigation from "@/shared/components/month-picker/month-navigation";
 import { parsePeriodParam } from "@/shared/utils/period";
 
@@ -18,7 +19,18 @@ const getSingleParam = (
 	return Array.isArray(value) ? (value[0] ?? null) : value;
 };
 
-export default async function Page({ searchParams }: PageProps) {
+export default function Page({ searchParams }: PageProps) {
+	return (
+		<ContentErrorBoundary
+			title="Não foi possível carregar os Insights"
+			description="As análises financeiras não puderam ser carregadas agora."
+		>
+			<InsightsContent searchParams={searchParams} />
+		</ContentErrorBoundary>
+	);
+}
+
+async function InsightsContent({ searchParams }: PageProps) {
 	await connection();
 	const resolvedSearchParams = searchParams ? await searchParams : undefined;
 	const periodoParam = getSingleParam(resolvedSearchParams, "periodo");

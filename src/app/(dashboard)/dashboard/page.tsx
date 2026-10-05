@@ -6,6 +6,7 @@ import { extractDashboardLogoNames } from "@/features/dashboard/lib/extract-logo
 import { fetchDashboardPageData } from "@/features/dashboard/page-data-queries";
 import { getSingleParam } from "@/features/transactions/lib/page-helpers";
 import { LogoPrefetchProvider } from "@/shared/components/entity-avatar";
+import { ContentErrorBoundary } from "@/shared/components/feedback/content-error-boundary";
 import MonthNavigation from "@/shared/components/month-picker/month-navigation";
 import { getUser } from "@/shared/lib/auth/server";
 import { prefetchLogoMappings } from "@/shared/lib/logo/prefetch-server";
@@ -17,7 +18,18 @@ type PageProps = {
 	searchParams?: PageSearchParams;
 };
 
-export default async function Page({ searchParams }: PageProps) {
+export default function Page({ searchParams }: PageProps) {
+	return (
+		<ContentErrorBoundary
+			title="Não foi possível carregar o dashboard"
+			description="Seus dados financeiros não puderam ser carregados agora."
+		>
+			<DashboardContent searchParams={searchParams} />
+		</ContentErrorBoundary>
+	);
+}
+
+async function DashboardContent({ searchParams }: PageProps) {
 	await connection();
 	const user = await getUser();
 	const resolvedSearchParams = searchParams ? await searchParams : undefined;
@@ -41,19 +53,29 @@ export default async function Page({ searchParams }: PageProps) {
 		<main className="flex flex-col gap-4">
 			<DashboardWelcome name={user.name} />
 			<MonthNavigation />
-			<DashboardMetricsCards
-				metrics={dashboardData.metrics}
-				period={selectedPeriod}
-				adminPayerSlug={adminPayerSlug}
-			/>
-			<LogoPrefetchProvider mappings={logoMappings}>
-				<DashboardGridEditable
-					data={dashboardData}
+			<ContentErrorBoundary
+				title="Não foi possível exibir o resumo"
+				description="Os indicadores do período não puderam ser exibidos agora."
+			>
+				<DashboardMetricsCards
+					metrics={dashboardData.metrics}
 					period={selectedPeriod}
-					initialPreferences={dashboardWidgets}
-					quickActionOptions={quickActionOptions}
+					adminPayerSlug={adminPayerSlug}
 				/>
-			</LogoPrefetchProvider>
+			</ContentErrorBoundary>
+			<ContentErrorBoundary
+				title="Não foi possível exibir os widgets"
+				description="Os detalhes do dashboard não puderam ser exibidos agora."
+			>
+				<LogoPrefetchProvider mappings={logoMappings}>
+					<DashboardGridEditable
+						data={dashboardData}
+						period={selectedPeriod}
+						initialPreferences={dashboardWidgets}
+						quickActionOptions={quickActionOptions}
+					/>
+				</LogoPrefetchProvider>
+			</ContentErrorBoundary>
 		</main>
 	);
 }

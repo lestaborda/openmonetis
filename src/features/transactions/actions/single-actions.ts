@@ -1616,7 +1616,8 @@ export async function updateTransactionInlineAction(
 		) {
 			return {
 				success: false,
-				error: "Para alterar o valor de um lançamento dividido, use a edição completa.",
+				error:
+					"Para alterar o valor de um lançamento dividido, use a edição completa.",
 			};
 		}
 

@@ -4,23 +4,34 @@ import type { NextConfig } from "next";
 // Carregar variáveis de ambiente explicitamente
 dotenv.config();
 
+type RemotePattern = NonNullable<
+	NonNullable<NextConfig["images"]>["remotePatterns"]
+>[number];
+
+const imageRemotePatterns: RemotePattern[] = [
+	{
+		protocol: "https",
+		hostname: "lh3.googleusercontent.com",
+		pathname: "/**",
+	},
+	{
+		protocol: "https",
+		hostname: "img.logo.dev",
+		pathname: "/**",
+	},
+];
+
 const nextConfig: NextConfig = {
 	output: "standalone",
 	cacheComponents: true,
 	reactCompiler: true,
 	images: {
-		remotePatterns: [
-			new URL("https://lh3.googleusercontent.com/**"),
-			{ protocol: "https", hostname: "**" },
-			{ protocol: "http", hostname: "**" },
-		],
+		remotePatterns: imageRemotePatterns,
 	},
 	devIndicators: {
 		position: "bottom-right",
 	},
 	experimental: {
-		prefetchInlining: true,
-		turbopackFileSystemCacheForDev: true,
 		optimizePackageImports: ["@remixicon/react"],
 	},
 

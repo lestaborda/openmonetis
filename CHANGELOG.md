@@ -5,6 +5,27 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.7.13] - 2026-08-09
+
+Esta versão atualiza a base técnica do OpenMonetis com as correções de segurança e desempenho do Next.js 16.3, acelera as verificações de tipos, melhora a recuperação de falhas nas áreas mais complexas do aplicativo e corrige a importação de extratos OFX que reutilizam identificadores bancários.
+
+### Adicionado
+- Interface: dashboard, Insights, anexos e relatórios agora possuem limites de erro próprios, preservando a navegação e oferecendo uma nova tentativa sem derrubar toda a área autenticada.
+- Desenvolvimento: agentes de código passam a consultar a documentação do Next.js correspondente à versão instalada no projeto.
+
+### Alterado
+- ATENÇÃO — mudança no banco de dados: esta versão adiciona a coluna ofx_import_fingerprint e substitui o índice único baseado apenas no FITID por um índice de fingerprint. Aplique a migração 0034_superb_blonde_phantom.sql antes de iniciar a aplicação atualizada (pnpm run db:migrate em instalações manuais). A imagem Docker tenta aplicar as migrações automaticamente durante a inicialização.
+- Banco de dados: a deduplicação de importações OFX agora considera os dados completos e a ocorrência de cada transação, em vez de depender somente do FITID fornecido pela instituição financeira.
+- Dependências: Next.js atualizado para 16.3.0 e TypeScript para 7.0.2.
+- Desenvolvimento: Turbopack e seus caches passam a usar os padrões nativos do Next.js 16.3, removendo flags redundantes da configuração.
+- CI: o cache de build em `.next/cache` agora é preservado entre execuções para acelerar compilações sucessivas.
+
+### Corrigido
+- Importação: transações OFX legítimas que compartilham o mesmo FITID agora permanecem independentes na revisão e podem ser importadas sem sobrescrever linhas, travar seletores ou serem descartadas como duplicatas (issue #88 - @cunhanai).
+- Interface: a identidade estável de cada linha evita duplicações visuais e mantém funcionando a seleção, a escolha de categoria e a rolagem da tabela de revisão.
+- Segurança: incorporadas as correções do Next.js 16.3 para Server Actions, Proxy, cache de respostas e otimização de imagens.
+- Segurança: o otimizador de imagens agora aceita somente avatares do Google e logos do Logo.dev, removendo os curingas globais de HTTP e HTTPS; anexos do S3 continuam servidos diretamente, sem passar pelo otimizador.
+
 ## [2.7.12] - 2026-06-30
 
 Esta versão corrige a seleção de faturas e períodos em popovers usados dentro de diálogos, alinhando esses componentes ao mesmo comportamento seguro aplicado recentemente aos seletores de data.

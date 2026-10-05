@@ -105,9 +105,11 @@ export async function parseXls(buffer: ArrayBuffer): Promise<ImportStatement> {
 
 		transactions.push({
 			externalId: null,
+			externalIdOccurrence: 0,
 			date,
 			amount,
 			description,
+			sourceDescription: description,
 			transactionType,
 			categoryRaw,
 		});

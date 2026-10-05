@@ -4,11 +4,10 @@ import {
 	RiShieldCheckLine,
 	RiSmartphoneLine,
 } from "@remixicon/react";
-import { headers } from "next/headers";
 import Image from "next/image";
 import Link from "next/link";
 import { AnimateOnScroll } from "@/features/landing/components/animate-on-scroll";
-import { MobileNav } from "@/features/landing/components/mobile-nav";
+import { LandingNavbar } from "@/features/landing/components/landing-navbar";
 import { SetupTabs } from "@/features/landing/components/setup-tabs";
 import {
 	companionBanks,
@@ -16,98 +15,31 @@ import {
 	extraFeatures,
 	getMetricsItems,
 	mainFeatures,
-	navLinks,
 	pwaHighlights,
 	stackItems,
 	whoIsItForItems,
 } from "@/features/landing/constants";
 import { landingImages } from "@/features/landing/images";
-import { fetchGitHubStats } from "@/features/landing/queries";
-import { AnimatedThemeToggler } from "@/shared/components/animated-theme-toggler";
+import {
+	fetchGitHubStats,
+	getLandingCopyrightYear,
+} from "@/features/landing/queries";
 import { Logo } from "@/shared/components/brand/logo";
-import { NavbarShell } from "@/shared/components/navigation/navbar/navbar-shell";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
-import { getOptionalUserSession } from "@/shared/lib/auth/server";
-import { isSignupDisabled } from "@/shared/lib/auth/signup";
 
 export default async function Page() {
-	const [session, headersList, githubStats] = await Promise.all([
-		getOptionalUserSession(),
-		headers(),
+	const [githubStats, copyrightYear] = await Promise.all([
 		fetchGitHubStats(),
+		getLandingCopyrightYear(),
 	]);
-	const hostname = headersList.get("host")?.replace(/:\d+$/, "");
-	const publicDomain = process.env.PUBLIC_DOMAIN?.replace(
-		/^https?:\/\//,
-		"",
-	).replace(/:\d+$/, "");
-	const isPublicDomain = !!(publicDomain && hostname === publicDomain);
-	const signupDisabled = isSignupDisabled();
 	const metricsItems = getMetricsItems(githubStats.stars, githubStats.forks);
 
 	return (
 		<div className="flex min-h-screen flex-col">
 			{/* Navigation */}
-			<NavbarShell>
-				{/* Center Navigation Links */}
-				<nav className="hidden md:flex items-center gap-1 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-					{navLinks.map(({ href, label }) => (
-						<Link
-							key={href}
-							href={href}
-							className="inline-flex h-9 items-center justify-center rounded-md px-2 text-sm font-medium leading-none text-primary-foreground/75 transition-colors hover:bg-primary-foreground/10 hover:text-primary-foreground dark:text-white/75 dark:hover:bg-white/10 dark:hover:text-white"
-						>
-							{label}
-						</Link>
-					))}
-				</nav>
-
-				<nav className="ml-auto flex items-center gap-1">
-					<AnimatedThemeToggler variant="navbar" />
-					{!isPublicDomain &&
-						(session?.user ? (
-							<Link prefetch href="/dashboard" className="hidden md:block">
-								<Button
-									variant="navbar"
-									size="sm"
-									className="h-9 text-primary-foreground/75 hover:bg-primary-foreground/10 hover:text-primary-foreground shadow-none dark:text-white/75 dark:hover:bg-white/10 dark:hover:text-white"
-								>
-									Dashboard
-								</Button>
-							</Link>
-						) : (
-							<div className="hidden md:flex items-center gap-1">
-								<Link href="/login">
-									<Button
-										variant="ghost"
-										size="sm"
-										className="h-9 text-primary-foreground/75 hover:bg-primary-foreground/10 hover:text-primary-foreground shadow-none dark:text-white/75 dark:hover:bg-white/10 dark:hover:text-white"
-									>
-										Entrar
-									</Button>
-								</Link>
-								{!signupDisabled && (
-									<Link href="/signup">
-										<Button
-											variant="ghost"
-											size="sm"
-											className="h-9 text-primary-foreground/75 hover:bg-primary-foreground/10 hover:text-primary-foreground shadow-none dark:text-white/75 dark:hover:bg-white/10 dark:hover:text-white"
-										>
-											Começar
-										</Button>
-									</Link>
-								)}
-							</div>
-						))}
-					<MobileNav
-						isPublicDomain={isPublicDomain}
-						isLoggedIn={!!session?.user}
-						signupDisabled={signupDisabled}
-					/>
-				</nav>
-			</NavbarShell>
+			<LandingNavbar />
 
 			{/* Hero Section */}
 			<section className="relative overflow-hidden pt-14 md:pt-20 lg:pt-24 pb-0">
@@ -698,8 +630,7 @@ export default async function Page() {
 
 						<div className="border-t mt-8 md:mt-12 pt-6 md:pt-8 flex flex-col md:flex-row justify-between items-center gap-3 md:gap-4 text-sm text-muted-foreground">
 							<p>
-								© {new Date().getFullYear()} openmonetis. Projeto open source
-								sob licença.
+								© {copyrightYear} openmonetis. Projeto open source sob licença.
 							</p>
 							<div className="flex items-center gap-2">
 								<RiShieldCheckLine className="size-4 text-primary" />
