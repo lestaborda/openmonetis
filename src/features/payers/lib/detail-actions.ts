@@ -231,9 +231,9 @@ const buildSummaryHtml = ({
   <span style="display:none;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;">Resumo mensal e detalhes de gastos por cartão, boletos e lançamentos.</span>
 
   <!-- Cabeçalho -->
-  <div style="background:linear-gradient(90deg,#dc5a3a,#ea744e);padding:28px 24px;border-radius:12px 12px 0 0;">
+  <div style="background:linear-gradient(90deg,#005677,#00678a);padding:28px 24px;border-radius:12px 12px 0 0;">
     <h1 style="margin:0 0 6px 0;font-size:26px;font-weight:800;letter-spacing:-0.3px;color:#ffffff;">Resumo Financeiro</h1>
-    <p style="margin:0;font-size:15px;color:#ffece6;">${escapeHtml(
+    <p style="margin:0;font-size:15px;color:#d8ecf5;">${escapeHtml(
 			periodLabel,
 		)}</p>
   </div>
@@ -252,8 +252,8 @@ const buildSummaryHtml = ({
     <table role="presentation" style="width:100%;border-collapse:collapse;margin:0 0 28px 0;border:1px solid #f1f5f9;border-radius:10px;overflow:hidden;">
       <tbody>
         <tr>
-          <td style="padding:16px 18px;background:#fff7f5;border-bottom:1px solid #f1f5f9;font-size:15px;color:#475569;">Total gasto</td>
-          <td style="padding:16px 18px;background:#fff7f5;border-bottom:1px solid #f1f5f9;text-align:right;">
+          <td style="padding:16px 18px;background:#ecf5fa;border-bottom:1px solid #f1f5f9;font-size:15px;color:#475569;">Total gasto</td>
+          <td style="padding:16px 18px;background:#ecf5fa;border-bottom:1px solid #f1f5f9;text-align:right;">
             <strong style="font-size:22px;color:#0f172a;">${formatCurrency(
 							monthlyBreakdown.totalExpenses,
 						)}</strong>

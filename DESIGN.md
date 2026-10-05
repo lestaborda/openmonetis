@@ -7,13 +7,13 @@ experiência consistente entre dashboard, relatórios, formulários e landing pa
 ## 1. Direção visual
 
 O OpenMonetis busca tornar a gestão financeira clara e acolhedora. A interface
-usa superfícies quentes, poucos elementos decorativos e uma cor laranja de
+usa superfícies quentes, poucos elementos decorativos e um azul oceano de
 destaque para orientar o olhar sem transformar toda ação em urgência.
 
 Princípios:
 
 - priorizar legibilidade e hierarquia em telas com muitos dados;
-- usar laranja para ações principais, seleção e foco;
+- usar azul para ações principais, seleção e foco;
 - manter superfícies leves no tema claro e contraste confortável no tema escuro;
 - aplicar cores semânticas para comunicar estado, não como decoração;
 - preservar espaço suficiente entre blocos para evitar ruído visual;
@@ -57,9 +57,10 @@ consistente. Não copie os valores para componentes: use os tokens semânticos.
 
 ### Gráficos
 
-Gráficos usam `chart-1` a `chart-10`. Visualizações que precisam de uma escala
-sequencial quente podem usar `data-1` a `data-6`. A cor nunca deve ser o único
-meio de distinguir uma série: inclua legenda, rótulo ou tooltip.
+Gráficos usam `chart-1` a `chart-10`. Visualizações que precisam de uma paleta
+categórica (azul, teal, violeta, verde, dourado, coral) podem usar `data-1` a
+`data-6`. A cor nunca deve ser o único meio de distinguir uma série: inclua
+legenda, rótulo ou tooltip.
 
 ### Tema escuro
 

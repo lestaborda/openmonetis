@@ -10,14 +10,14 @@ import {
 	DialogTitle,
 } from "@/shared/components/ui/dialog";
 
-// Tons baseados na primary: oklch(72% 0.163 50) ≈ laranja quente
+// Tons baseados na primary: oklch(70% 0.10 228) ≈ azul oceano
 const PRIMARY_CONFETTI_COLORS = [
-	"#e07a3a", // primary base
-	"#f5a870", // primary claro
-	"#ffd4a8", // primary muito claro
-	"#b85520", // primary escuro
-	"#8a3a10", // primary muito escuro
-	"#f5c896", // tom pastel
+	"#52abcf", // primary base
+	"#85c8e6", // primary claro
+	"#bce5f8", // primary muito claro
+	"#006d90", // primary escuro
+	"#004a64", // primary muito escuro
+	"#a9d7e2", // tom pastel
 ];
 
 type PaymentSuccessProps = {

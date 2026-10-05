@@ -258,7 +258,7 @@ function LoadingState() {
 		{
 			label: "Comportamentos",
 			icon: RiEyeLine,
-			color: "text-orange-600 dark:text-orange-400",
+			color: "text-blue-600 dark:text-blue-400",
 		},
 		{
 			label: "Gatilhos",

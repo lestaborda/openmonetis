@@ -10,7 +10,7 @@
 
 > **Não há versão online hospedada.** Você precisa clonar o repositório e rodar localmente ou no seu próprio servidor.
 
-[![Version](https://img.shields.io/badge/version-2.7.13-blue?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.7.14-blue?style=flat-square)](CHANGELOG.md)
 [![Next.js](https://img.shields.io/badge/Next.js-black?style=flat-square&logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-blue?style=flat-square&logo=postgresql)](https://www.postgresql.org/)
@@ -530,8 +530,8 @@ Se o OpenMonetis estiver rodando dentro de um container Docker e o Ollama estive
 
 ## 🎨 Design System
 
-O OpenMonetis usa uma identidade visual própria com superfícies quentes, laranja
-como cor de destaque, temas claro e escuro e tipografia Bricolage Grotesque. A
+O OpenMonetis usa uma identidade visual própria com superfícies quentes, azul
+oceano como cor de destaque, temas claro e escuro e tipografia Bricolage Grotesque. A
 interface é construída com tokens semânticos em OKLCH, Tailwind CSS 4 e
 componentes compartilhados baseados em shadcn/ui e Radix UI.
 
@@ -636,8 +636,8 @@ Antes de começar, leia o [`CLAUDE.md`](CLAUDE.md) — ele documenta a arquitetu
 As validações rodam em pull requests e em cada push na `main`. A publicação só começa quando uma tag SemVer aponta para um commit validado e a versão da tag corresponde ao `package.json` e ao `CHANGELOG.md`.
 
 ```bash
-git tag -a v2.7.13 -m "v2.7.13"
-git push origin v2.7.13
+git tag -a v2.7.14 -m "v2.7.14"
+git push origin v2.7.14
 ```
 
 O workflow da tag valida o código, publica as imagens Docker versionadas e `latest` e, somente depois, cria a GitHub Release com as notas do changelog.
